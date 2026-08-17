@@ -1,0 +1,76 @@
+<Page
+    x:Class="WinSMS.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <ScrollViewer Margin="16">
+        <StackPanel MaxWidth="600" Spacing="16">
+            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8"/>
+
+            <!-- Modem Connection -->
+            <TextBlock Text="Modem Connection" Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="0"
+                          Header="COM Port"
+                          ItemsSource="{x:Bind ViewModel.AvailablePorts}"
+                          SelectedItem="{x:Bind ViewModel.SelectedPort, Mode=TwoWay}"
+                          HorizontalAlignment="Stretch"
+                          PlaceholderText="Select a port"/>
+                <Button Grid.Column="1" Command="{x:Bind ViewModel.RefreshPortsCommand}"
+                        Content="Refresh" VerticalAlignment="Bottom">
+                    <Button.Icon><FontIcon Glyph="&#xE72C;"/></Button.Icon>
+                </Button>
+            </Grid>
+
+            <ComboBox Header="Baud Rate"
+                      ItemsSource="{x:Bind ViewModel.BaudRates}"
+                      SelectedItem="{x:Bind ViewModel.BaudRate, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch"/>
+
+            <NumberBox Header="Command Timeout (ms)"
+                       Value="{x:Bind ViewModel.CommandTimeoutMs, Mode=TwoWay}"
+                       Minimum="1000" Maximum="30000" SpinButtonPlacementMode="Inline"/>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{x:Bind ViewModel.ConnectCommand}" Content="Connect"
+                        Style="{StaticResource AccentButtonStyle}"/>
+                <Button Command="{x:Bind ViewModel.DisconnectCommand}" Content="Disconnect"/>
+                <Button Command="{x:Bind ViewModel.TestConnectionCommand}" Content="Test"/>
+                <Button Command="{x:Bind ViewModel.GetModemInfoCommand}" Content="Get Info"/>
+            </StackPanel>
+
+            <!-- Connection status -->
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4">
+                <TextBlock Text="Status:" VerticalAlignment="Center"/>
+                <TextBlock Text="{x:Bind ViewModel.ConnectionState, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+            </StackPanel>
+
+            <!-- Modem info -->
+            <StackPanel Spacing="4"
+                        Visibility="{x:Bind ViewModel.ModemManufacturer, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}">
+                <TextBlock Text="Modem Information" Style="{StaticResource BaseTextBlockStyle}"/>
+                <TextBlock><Run Text="Manufacturer: "/><Run Text="{x:Bind ViewModel.ModemManufacturer, Mode=OneWay}"/></TextBlock>
+                <TextBlock><Run Text="Model: "/><Run Text="{x:Bind ViewModel.ModemModel, Mode=OneWay}"/></TextBlock>
+                <TextBlock><Run Text="Serial: "/><Run Text="{x:Bind ViewModel.ModemSerial, Mode=OneWay}"/></TextBlock>
+            </StackPanel>
+
+            <!-- Polling -->
+            <TextBlock Text="Polling" Style="{StaticResource SubtitleTextBlockStyle}"/>
+            <ToggleSwitch Header="Auto Connect on Start" IsOn="{x:Bind ViewModel.AutoConnect, Mode=TwoWay}"/>
+            <NumberBox Header="Polling Interval (seconds)"
+                       Value="{x:Bind ViewModel.PollingIntervalSeconds, Mode=TwoWay}"
+                       Minimum="10" Maximum="3600" SpinButtonPlacementMode="Inline"/>
+
+            <!-- Status message -->
+            <InfoBar IsOpen="{x:Bind ViewModel.StatusMessage, Converter={StaticResource NullToBoolConverter}, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                     Severity="Informational"/>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

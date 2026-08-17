@@ -1,0 +1,19 @@
+<Application
+    x:Class="WinSMS.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:helpers="using:WinSMS.Helpers">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <helpers:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+            <helpers:NullToBoolConverter x:Key="NullToBoolConverter"/>
+            <helpers:BoolToUnreadColorConverter x:Key="BoolToUnreadColorConverter"/>
+            <helpers:BoolToInfoBarSeverityConverter x:Key="BoolToInfoBarSeverityConverter"/>
+            <helpers:GreaterThanOneToVisibilityConverter x:Key="GreaterThanOneToVisibilityConverter"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
