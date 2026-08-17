@@ -1,0 +1,54 @@
+<Window
+    x:Class="WinSMS.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:WinSMS"
+    Title="WinSMS">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <NavigationView x:Name="NavView"
+                        Grid.Row="0"
+                        IsSettingsVisible="True"
+                        PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed"
+                        SelectionChanged="NavView_SelectionChanged"
+                        Loaded="NavView_Loaded">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Inbox" Tag="Inbox">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE715;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Outbox" Tag="Outbox">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE724;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="New Message" Tag="Compose">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE70F;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <NavigationView.Content>
+                <Frame x:Name="ContentFrame"/>
+            </NavigationView.Content>
+        </NavigationView>
+
+        <!-- Status bar -->
+        <Border Grid.Row="1" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0" Padding="12,4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Ellipse x:Name="StatusIndicator" Width="10" Height="10" Fill="Gray"/>
+                <TextBlock x:Name="StatusText" Text="Disconnected" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+  <!-- Include only the non-WinUI source files from WinSMS that can be tested on net8.0 -->
+  <ItemGroup>
+    <Compile Include="..\WinSMS\Models\Enums.cs" Link="Models\Enums.cs"/>
+    <Compile Include="..\WinSMS\Models\SmsMessage.cs" Link="Models\SmsMessage.cs"/>
+    <Compile Include="..\WinSMS\Models\AppSettings.cs" Link="Models\AppSettings.cs"/>
+    <Compile Include="..\WinSMS\Models\ModemInfo.cs" Link="Models\ModemInfo.cs"/>
+    <Compile Include="..\WinSMS\Services\SmsService.cs" Link="Services\SmsService.cs"/>
+    <Compile Include="..\WinSMS\Services\XmlMessageArchiveService.cs" Link="Services\XmlMessageArchiveService.cs"/>
+    <Compile Include="..\WinSMS\Services\Interfaces\ISmsService.cs" Link="Services\Interfaces\ISmsService.cs"/>
+    <Compile Include="..\WinSMS\Services\Interfaces\IModemService.cs" Link="Services\Interfaces\IModemService.cs"/>
+    <Compile Include="..\WinSMS\Services\Interfaces\IMessageArchiveService.cs" Link="Services\Interfaces\IMessageArchiveService.cs"/>
+    <Compile Include="..\WinSMS\Helpers\PhoneNumberHelper.cs" Link="Helpers\PhoneNumberHelper.cs"/>
+  </ItemGroup>
+
+  <!-- Suppress CommunityToolkit.Mvvm dependency for test project — ViewModels not needed -->
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+  </ItemGroup>
+</Project>
