@@ -38,10 +38,12 @@
             </StackPanel>
 
             <Button Command="{x:Bind ViewModel.SendCommand}"
-                    Content="Send"
                     Style="{StaticResource AccentButtonStyle}"
                     HorizontalAlignment="Left">
-                <Button.Icon><FontIcon Glyph="&#xE724;"/></Button.Icon>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE724;"/>
+                    <TextBlock Text="Send"/>
+                </StackPanel>
             </Button>
 
             <ProgressRing IsActive="{x:Bind ViewModel.IsSending, Mode=OneWay}" Width="24" Height="24"/>
