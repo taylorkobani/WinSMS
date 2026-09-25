@@ -67,8 +67,11 @@
             <TextBlock Text="Windows SMS Detection" Style="{StaticResource SubtitleTextBlockStyle}"/>
             <TextBlock Text="Checks whether Windows exposes an SMS-capable mobile broadband device. This does not send a message."
                        TextWrapping="Wrap"/>
-            <Button Command="{x:Bind ViewModel.DetectWindowsSmsCommand}" Content="Detect Windows SMS Device"
-                    HorizontalAlignment="Left"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{x:Bind ViewModel.DetectWindowsSmsCommand}" Content="Detect Windows SMS Device"/>
+                <Button Command="{x:Bind ViewModel.DiagnoseWindowsSmsCommand}" Content="Run Stage 2 Diagnostics"
+                        Style="{StaticResource AccentButtonStyle}"/>
+            </StackPanel>
             <TextBox Header="Diagnostic result"
                      Text="{x:Bind ViewModel.WindowsSmsDiagnostics, Mode=OneWay}"
                      IsReadOnly="True"
