@@ -91,7 +91,6 @@ public class SmsService : ISmsService
             {
                 message.Status = SmsStatus.Failed;
                 message.Error = $"Windows SMS send failed. CellularClass={result.CellularClass}; " +
-                                $"GsmCause={result.GsmCause}; CdmaCause={result.CdmaCause}; " +
                                 $"ModemError={result.ModemErrorCode}; TransportFailure={result.TransportFailureCause}.";
                 _logger.LogError("SMS send failed: {Error}", message.Error);
             }
