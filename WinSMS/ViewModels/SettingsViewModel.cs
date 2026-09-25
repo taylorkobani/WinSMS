@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
+using Windows.Networking.NetworkOperators;
 using WinSMS.Models;
 using WinSMS.Services;
 using WinSMS.Services.Interfaces;
@@ -213,6 +214,126 @@ public partial class SettingsViewModel : ObservableObject
             StatusMessage = "Windows SMS detection failed.";
         }
     }
+
+    [RelayCommand]
+    private async Task DiagnoseWindowsSmsAsync()
+    {
+        StatusMessage = "Running Windows SMS diagnostics...";
+        var lines = new List<string>();
+
+        try
+        {
+            var selector = SmsDevice2.GetDeviceSelector();
+            var devices = await DeviceInformation.FindAllAsync(selector);
+            lines.Add($"SMS devices enumerated: {devices.Count}");
+
+            if (devices.Count == 0)
+            {
+                lines.Add("No Windows SMS device was found.");
+                WindowsSmsDiagnostics = string.Join(Environment.NewLine, lines);
+                StatusMessage = "No Windows SMS device found.";
+                return;
+            }
+
+            foreach (var info in devices)
+            {
+                lines.Add($"Device: {info.Name}");
+                lines.Add($"Device ID: {info.Id}");
+                lines.Add($"PnP enabled: {info.IsEnabled}");
+
+                try
+                {
+                    var sms = SmsDevice2.FromId(info.Id);
+                    if (sms is null)
+                    {
+                        lines.Add("SmsDevice2.FromId: returned null");
+                        continue;
+                    }
+
+                    lines.Add("SmsDevice2.FromId: SUCCESS");
+                    lines.Add($"SMS status: {sms.DeviceStatus}");
+                    lines.Add($"Cellular class: {sms.CellularClass}");
+                    lines.Add($"Parent device ID: {sms.ParentDeviceId}");
+                    lines.Add($"Account number: {sms.AccountPhoneNumber ?? "(not reported)"}");
+                    lines.Add($"SMSC address: {sms.SmscAddress ?? "(not reported)"}");
+
+                    if (sms.DeviceStatus == SmsDeviceStatus.Ready)
+                        lines.Add("SMS readiness: READY");
+                    else
+                        lines.Add($"SMS readiness: NOT READY ({DescribeSmsStatus(sms.DeviceStatus)})");
+
+                    try
+                    {
+                        var modem = MobileBroadbandModem.FromId(sms.ParentDeviceId);
+                        if (modem is null)
+                        {
+                            lines.Add("MobileBroadbandModem.FromId: returned null");
+                        }
+                        else
+                        {
+                            lines.Add("MobileBroadbandModem.FromId: SUCCESS");
+                            try
+                            {
+                                var deviceInfo = modem.DeviceInformation;
+                                lines.Add($"Radio state: {deviceInfo.CurrentRadioState}");
+                                lines.Add($"SIM ICCID: {deviceInfo.SimIccId ?? "(not reported)"}");
+                                lines.Add($"Subscriber ID available: {!string.IsNullOrWhiteSpace(deviceInfo.SubscriberId)}");
+                            }
+                            catch (Exception ex)
+                            {
+                                lines.Add($"Mobile broadband device info blocked: {FormatException(ex)}");
+                            }
+
+                            try
+                            {
+                                var account = modem.CurrentAccount;
+                                lines.Add(account is null
+                                    ? "Mobile broadband account: none"
+                                    : $"Mobile broadband account: {account.ServiceProviderName ?? "(provider not reported)"}");
+                            }
+                            catch (Exception ex)
+                            {
+                                lines.Add($"Mobile broadband account access blocked: {FormatException(ex)}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lines.Add($"MobileBroadbandModem access failed: {FormatException(ex)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lines.Add($"SmsDevice2.FromId failed: {FormatException(ex)}");
+                }
+            }
+
+            StatusMessage = "Windows SMS diagnostics completed.";
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"SMS enumeration failed: {FormatException(ex)}");
+            StatusMessage = "Windows SMS diagnostics failed.";
+        }
+
+        WindowsSmsDiagnostics = string.Join(Environment.NewLine, lines);
+        await Task.CompletedTask;
+    }
+
+    private static string DescribeSmsStatus(SmsDeviceStatus status) => status switch
+    {
+        SmsDeviceStatus.Off => "device is powered off",
+        SmsDeviceStatus.SimNotInserted => "SIM is not inserted",
+        SmsDeviceStatus.BadSim => "SIM is invalid",
+        SmsDeviceStatus.DeviceFailure => "device failure",
+        SmsDeviceStatus.SubscriptionNotActivated => "subscription is not activated",
+        SmsDeviceStatus.DeviceLocked => "device is locked",
+        SmsDeviceStatus.DeviceBlocked => "device is blocked",
+        _ => status.ToString()
+    };
+
+    private static string FormatException(Exception ex) =>
+        $"{ex.GetType().Name}, HRESULT 0x{ex.HResult:X8}: {ex.Message}";
 
     private void OnConnectionStateChanged(object? sender, ModemConnectionState state)
     {
