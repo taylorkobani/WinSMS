@@ -63,6 +63,19 @@
                 <TextBlock><Run Text="Serial: "/><Run Text="{x:Bind ViewModel.ModemSerial, Mode=OneWay}"/></TextBlock>
             </StackPanel>
 
+            <!-- Windows SMS diagnostics -->
+            <TextBlock Text="Windows SMS Detection" Style="{StaticResource SubtitleTextBlockStyle}"/>
+            <TextBlock Text="Checks whether Windows exposes an SMS-capable mobile broadband device. This does not send a message."
+                       TextWrapping="Wrap"/>
+            <Button Command="{x:Bind ViewModel.DetectWindowsSmsCommand}" Content="Detect Windows SMS Device"
+                    HorizontalAlignment="Left"/>
+            <TextBox Header="Diagnostic result"
+                     Text="{x:Bind ViewModel.WindowsSmsDiagnostics, Mode=OneWay}"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MinHeight="100"/>
+
             <!-- Polling -->
             <TextBlock Text="Polling" Style="{StaticResource SubtitleTextBlockStyle}"/>
             <ToggleSwitch Header="Auto Connect on Start" IsOn="{x:Bind ViewModel.AutoConnect, Mode=TwoWay}"/>
