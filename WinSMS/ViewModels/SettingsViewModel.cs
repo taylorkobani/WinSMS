@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
+using Windows.Devices.Enumeration;
+using Windows.Devices.Sms;
 using WinSMS.Models;
 using WinSMS.Services;
 using WinSMS.Services.Interfaces;
@@ -47,6 +49,9 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _modemSerial;
+
+    [ObservableProperty]
+    private string _windowsSmsDiagnostics = "Not checked.";
 
     public ObservableCollection<int> BaudRates { get; } = new(new[] { 9600, 19200, 38400, 57600, 115200, 230400 });
 
@@ -147,6 +152,65 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Failed to get modem info: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task DetectWindowsSmsAsync()
+    {
+        StatusMessage = "Checking Windows SMS devices...";
+        try
+        {
+            var selector = SmsDevice2.GetDeviceSelector();
+            var devices = await DeviceInformation.FindAllAsync(selector);
+
+            var lines = new List<string>
+            {
+                $"SMS devices found: {devices.Count}"
+            };
+
+            foreach (var device in devices)
+                lines.Add($"- {device.Name} | Id: {device.Id}");
+
+            try
+            {
+                var defaultDevice = SmsDevice2.GetDefault();
+                if (defaultDevice is null)
+                {
+                    lines.Add("Default SMS device: none");
+                }
+                else
+                {
+                    lines.Add($"Default device ID: {defaultDevice.DeviceId}");
+                    lines.Add($"Parent device ID: {defaultDevice.ParentDeviceId}");
+                    lines.Add($"Status: {defaultDevice.DeviceStatus}");
+                    lines.Add($"Cellular class: {defaultDevice.CellularClass}");
+                    lines.Add($"Account number: {defaultDevice.AccountPhoneNumber ?? "(not reported)"}");
+                }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                lines.Add($"Default SMS device access denied: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                lines.Add($"Default SMS device unavailable: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            WindowsSmsDiagnostics = string.Join(Environment.NewLine, lines);
+            StatusMessage = devices.Count > 0
+                ? "Windows SMS detection completed."
+                : "Windows did not enumerate an accessible SMS device.";
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            WindowsSmsDiagnostics = $"Access denied while enumerating SMS devices: {ex.Message}";
+            StatusMessage = "Windows denied SMS-device access.";
+        }
+        catch (Exception ex)
+        {
+            WindowsSmsDiagnostics = $"{ex.GetType().Name}: {ex.Message}";
+            StatusMessage = "Windows SMS detection failed.";
         }
     }
 
