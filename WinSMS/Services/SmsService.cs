@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Windows.Devices.Sms;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
 
@@ -63,21 +64,36 @@ public class SmsService : ISmsService
         {
             message.Status = SmsStatus.Sending;
             await _archive.UpdateMessageAsync(message);
-            await _modem.SendCommandAsync("AT+CMGF=1", cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            // CMGS is an interactive AT transaction and must remain under one modem lock.
-            var response = await _modem.SendSmsAsync(phoneNumber, body, cancellationToken);
-            if (response.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
+            var device = SmsDevice2.GetDefault()
+                ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
+
+            if (device.DeviceStatus != SmsDeviceStatus.Ready)
+                throw new InvalidOperationException($"Windows SMS device is not ready. Status: {device.DeviceStatus}.");
+
+            var sms = new SmsTextMessage2
             {
-                message.Status = SmsStatus.Failed;
-                message.Error = ExtractError(response);
-                _logger.LogError("SMS send failed: {Error}", message.Error);
+                To = phoneNumber,
+                Body = body
+            };
+
+            var result = await device.SendMessageAndGetResultAsync(sms).AsTask(cancellationToken);
+            if (result.IsSuccessful)
+            {
+                message.Status = SmsStatus.Sent;
+                message.ModemReference = result.MessageReferenceNumbers.Count > 0
+                    ? string.Join(",", result.MessageReferenceNumbers)
+                    : null;
+                _logger.LogInformation("SMS sent successfully through Windows SMS API to {PhoneNumber}", phoneNumber);
             }
             else
             {
-                message.Status = SmsStatus.Sent;
-                message.ModemReference = ExtractCmgsReference(response);
-                _logger.LogInformation("SMS sent successfully to {PhoneNumber}", phoneNumber);
+                message.Status = SmsStatus.Failed;
+                message.Error = $"Windows SMS send failed. CellularClass={result.CellularClass}; " +
+                                $"GsmCause={result.GsmCause}; CdmaCause={result.CdmaCause}; " +
+                                $"ModemError={result.ModemErrorCode}; TransportFailure={result.TransportFailureCause}.";
+                _logger.LogError("SMS send failed: {Error}", message.Error);
             }
         }
         catch (Exception ex)
