@@ -86,7 +86,7 @@ public class SerialModemService : IModemService, IDisposable
             PrepareResponse(ResponseMode.Command);
             using var cts = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
             using var registration = cts.Token.Register(() => _pendingResponse?.TrySetCanceled(cts.Token));
-            _logger.LogDebug("Sending AT command: {Command}", command);
+            _logger.LogInformation("SERIAL TX [{Port}]: {Data}", _port!.PortName, EscapeForLog(command + "\\r\\n"));
             _port!.WriteLine(command);
             var response = await _pendingResponse!.Task;
             _logger.LogDebug("Received response for {Command}: {Response}", command, response);
@@ -94,7 +94,7 @@ public class SerialModemService : IModemService, IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("AT command timed out: {Command}", command);
+            _logger.LogWarning("AT command timed out: {Command}. Buffered RX: {Buffered}", command, EscapeForLog(_responseBuffer.ToString()));
             throw new TimeoutException($"AT command timed out: {command}");
         }
         finally { ClearPendingResponse(); _commandLock.Release(); }
@@ -111,7 +111,7 @@ public class SerialModemService : IModemService, IDisposable
             using (var promptCts = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(10)))
             using (promptCts.Token.Register(() => _pendingResponse?.TrySetCanceled(promptCts.Token)))
             {
-                _logger.LogDebug("Starting SMS submission to {PhoneNumber}", phoneNumber);
+                _logger.LogInformation("SERIAL TX [{Port}]: {Data}", _port!.PortName, EscapeForLog($"AT+CMGS=\\\"{phoneNumber}\\\"\\r\\n"));
                 _port!.WriteLine($"AT+CMGS=\"{phoneNumber}\"");
                 await _pendingResponse!.Task;
             }
@@ -129,7 +129,7 @@ public class SerialModemService : IModemService, IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("SMS submission timed out for {PhoneNumber}", phoneNumber);
+            _logger.LogWarning("SMS submission timed out for {PhoneNumber}. Mode: {Mode}. Buffered RX: {Buffered}", phoneNumber, _responseMode, EscapeForLog(_responseBuffer.ToString()));
             throw new TimeoutException("The modem timed out while sending the SMS.");
         }
         finally { ClearPendingResponse(); _commandLock.Release(); }
@@ -232,7 +232,7 @@ public class SerialModemService : IModemService, IDisposable
         }
     }
 
-    private void OnErrorReceived(object sender, SerialErrorReceivedEventArgs e)
+    private static string EscapeForLog(string value)\n    {\n        return value.Replace("\\r", "<CR>").Replace("\\n", "<LF>").Replace("\\t", "<TAB>");\n    }\n\n    private void OnErrorReceived(object sender, SerialErrorReceivedEventArgs e)
     {
         _logger.LogWarning("Serial port error: {EventType}", e.EventType);
         if (e.EventType == SerialError.Overrun || e.EventType == SerialError.TXFull) SetConnectionState(ModemConnectionState.Error);
