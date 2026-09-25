@@ -202,6 +202,7 @@ public class SerialModemService : IModemService, IDisposable
         try
         {
             var data = _port.ReadExisting();
+            _logger.LogInformation("SERIAL RX [{Port}] ({Length} chars): {Data}", _port.PortName, data.Length, EscapeForLog(data));
             _responseBuffer.Append(data);
             var buffered = _responseBuffer.ToString();
 
@@ -232,7 +233,14 @@ public class SerialModemService : IModemService, IDisposable
         }
     }
 
-    private static string EscapeForLog(string value)\n    {\n        return value.Replace("\\r", "<CR>").Replace("\\n", "<LF>").Replace("\\t", "<TAB>");\n    }\n\n    private void OnErrorReceived(object sender, SerialErrorReceivedEventArgs e)
+    private static string EscapeForLog(string value)
+    {
+        return value.Replace("\r", "<CR>")
+                    .Replace("\n", "<LF>")
+                    .Replace("\t", "<TAB>");
+    }
+
+    private void OnErrorReceived(object sender, SerialErrorReceivedEventArgs e)
     {
         _logger.LogWarning("Serial port error: {EventType}", e.EventType);
         if (e.EventType == SerialError.Overrun || e.EventType == SerialError.TXFull) SetConnectionState(ModemConnectionState.Error);
