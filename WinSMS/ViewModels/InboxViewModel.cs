@@ -145,7 +145,7 @@ public partial class InboxViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task DeleteConversationAsync(SmsConversation? conversation)
+    public async Task DeleteConversationAsync(SmsConversation? conversation)
     {
         if (conversation == null) return;
 
@@ -153,9 +153,15 @@ public partial class InboxViewModel : ObservableObject
         {
             var number = conversation.PhoneNumber;
             await _archive.DeleteConversationAsync(conversation.LocalPhoneNumber, number);
-            ReplyBody = string.Empty;
-            SelectedConversation = null;
-            await RefreshAsync();
+            var wasSelected = ReferenceEquals(SelectedConversation, conversation);
+            Conversations.Remove(conversation);
+
+            if (wasSelected)
+            {
+                ReplyBody = string.Empty;
+                SelectedConversation = Conversations.FirstOrDefault();
+            }
+
             StatusMessage = $"Conversation with {number} deleted.";
         }
         catch (Exception ex)
