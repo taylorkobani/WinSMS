@@ -14,6 +14,10 @@ public sealed partial class SmsNotificationWindow : Window
     {
         InitializeComponent();
 
+        // A WinUI Window has a system backdrop/clear color outside its XAML content.
+        // Make only this notification window yellow; do not mutate application/theme resources.
+        SystemBackdrop = null;
+
         _appWindow = AppWindow;
         _appWindow.IsShownInSwitchers = false;
 
@@ -25,6 +29,10 @@ public sealed partial class SmsNotificationWindow : Window
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
         }
+
+        var root = (Microsoft.UI.Xaml.Controls.Border)Content;
+        root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            global::Windows.UI.Color.FromArgb(255, 255, 244, 184));
 
         _appWindow.Resize(new global::Windows.Graphics.SizeInt32(390, 150));
         _appWindow.Hide();
