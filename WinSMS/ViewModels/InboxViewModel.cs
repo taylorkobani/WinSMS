@@ -135,6 +135,26 @@ public partial class InboxViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task DeleteConversationAsync(SmsConversation? conversation)
+    {
+        if (conversation == null) return;
+
+        try
+        {
+            var number = conversation.PhoneNumber;
+            await _archive.DeleteConversationAsync(number);
+            ReplyBody = string.Empty;
+            SelectedConversation = null;
+            await RefreshAsync();
+            StatusMessage = $"Conversation with {number} deleted.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to delete conversation: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     private async Task DeleteMessageAsync(SmsMessage message)
     {
         try
