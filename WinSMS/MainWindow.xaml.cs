@@ -233,6 +233,11 @@ public sealed partial class MainWindow : Window
         App.Services.GetRequiredService<ISmsService>().MessageReceived -= OnSmsMessageReceived;
         RemoveTrayIcon();
 
+        // The SMS popup is a second top-level WinUI Window. Hiding it is not
+        // enough: if it remains alive after MainWindow closes, the process and
+        // Visual Studio debugging session remain active.
+        _smsNotificationWindow.Close();
+
         if (_oldWndProc != IntPtr.Zero)
         {
             SetWindowLongPtr(_hwnd, GWL_WNDPROC, _oldWndProc);
