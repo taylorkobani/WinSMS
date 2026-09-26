@@ -5,7 +5,7 @@
     xmlns:models="using:WinSMS.Models"
     x:Name="RootPage"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <Grid Margin="16">
+    <Grid Margin="16,16,16,0">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="Conversations" Style="{StaticResource TitleTextBlockStyle}"/>
@@ -53,7 +53,7 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            <Grid Grid.Column="1" Padding="16">
+            <Grid Grid.Column="1" Padding="16,16,16,0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="{x:Bind ViewModel.SelectedConversation.PhoneNumber, Mode=OneWay}"
                            Style="{StaticResource SubtitleTextBlockStyle}"
@@ -109,11 +109,12 @@
                              Text="{x:Bind ViewModel.ReplyBody, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
-                             Height="44"/>
+                             MinHeight="44"
+                             VerticalAlignment="Stretch"/>
                     <Button Grid.Column="1"
                             Command="{x:Bind ViewModel.SendReplyCommand}"
                             Style="{StaticResource AccentButtonStyle}"
-                            Height="44"
+                            MinHeight="44"
                             VerticalAlignment="Stretch">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE724;"/>
