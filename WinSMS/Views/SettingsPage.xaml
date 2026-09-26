@@ -16,9 +16,20 @@
                      Text="{x:Bind ViewModel.ProfileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
             <TextBlock Text="Profile color"/>
-            <ComboBox ItemsSource="{x:Bind ViewModel.ProfileColors}"
+            <ComboBox x:Name="ProfileColorComboBox"
+                      ItemsSource="{x:Bind ViewModel.ProfileColors}"
                       SelectedItem="{x:Bind ViewModel.ProfileColor, Mode=TwoWay}"
-                      HorizontalAlignment="Stretch"/>
+                      ContainerContentChanging="ProfileColorComboBox_ContainerContentChanging"
+                      HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="16" Height="16"/>
+                            <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             <Button Content="Save Profile"
                     Command="{x:Bind ViewModel.SaveProfileCommand}"
                     Style="{StaticResource AccentButtonStyle}"
