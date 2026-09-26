@@ -1,6 +1,5 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Windows.Graphics;
 
 namespace WinSMS;
 
@@ -27,7 +26,7 @@ public sealed partial class SmsNotificationWindow : Window
             presenter.IsMinimizable = false;
         }
 
-        _appWindow.Resize(new SizeInt32(390, 150));
+        _appWindow.Resize(new global::Windows.Graphics.SizeInt32(390, 150));
         _appWindow.Hide();
     }
 
@@ -39,7 +38,7 @@ public sealed partial class SmsNotificationWindow : Window
 
         var area = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var size = _appWindow.Size;
-        _appWindow.Move(new PointInt32(
+        _appWindow.Move(new global::Windows.Graphics.PointInt32(
             area.X + area.Width - size.Width - 16,
             area.Y + area.Height - size.Height - 16));
 
