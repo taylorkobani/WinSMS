@@ -115,29 +115,76 @@ public class SmsService : ISmsService
 
     private void InitializeWindowsSmsReceiving()
     {
+        const string registrationId = "WinSMS.TextMessages";
+        string step = "starting";
+
         try
         {
-            var existing = SmsMessageRegistration.AllRegistrations
-                .FirstOrDefault(r => r.Id == "WinSMS.TextMessages");
+            step = "reading SmsMessageRegistration.AllRegistrations";
+            _logger.LogInformation("SMS registration diagnostic: {Step}", step);
+
+            var registrations = SmsMessageRegistration.AllRegistrations;
+            _logger.LogInformation(
+                "SMS registration diagnostic: Windows returned {Count} registration(s).",
+                registrations.Count);
+
+            step = "looking for existing WinSMS registration";
+            var existing = registrations.FirstOrDefault(r => r.Id == registrationId);
 
             if (existing != null)
             {
+                _logger.LogInformation(
+                    "SMS registration diagnostic: existing registration {RegistrationId} found.",
+                    registrationId);
                 _messageRegistration = existing;
             }
             else
             {
+                step = "creating SMS filter rules";
+                _logger.LogInformation("SMS registration diagnostic: {Step}", step);
+
                 var rules = new SmsFilterRules(SmsFilterActionType.Accept);
                 rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
-                _messageRegistration = SmsMessageRegistration.Register("WinSMS.TextMessages", rules);
+
+                step = "calling SmsMessageRegistration.Register";
+                _logger.LogInformation(
+                    "SMS registration diagnostic: registering {RegistrationId}.",
+                    registrationId);
+
+                _messageRegistration = SmsMessageRegistration.Register(registrationId, rules);
+
+                _logger.LogInformation(
+                    "SMS registration diagnostic: registration {RegistrationId} created.",
+                    registrationId);
             }
 
+            step = "detaching previous MessageReceived handler";
+            _logger.LogInformation("SMS registration diagnostic: {Step}", step);
             _messageRegistration.MessageReceived -= OnWindowsSmsMessageReceived;
+
+            step = "attaching MessageReceived handler";
+            _logger.LogInformation("SMS registration diagnostic: {Step}", step);
             _messageRegistration.MessageReceived += OnWindowsSmsMessageReceived;
-            _logger.LogInformation("Windows SMS receive registration is active.");
+
+            _logger.LogInformation(
+                "Windows SMS receive registration is active. RegistrationId={RegistrationId}",
+                _messageRegistration.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to register for incoming Windows SMS messages.");
+            _logger.LogError(
+                ex,
+                "Failed to register for incoming Windows SMS messages. Step={Step}; " +
+                "ExceptionType={ExceptionType}; HResult=0x{HResult:X8}; Message={Message}",
+                step,
+                ex.GetType().FullName,
+                ex.HResult,
+                ex.Message);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"WinSMS SMS REGISTRATION FAILED | Step={step} | " +
+                $"Type={ex.GetType().FullName} | HResult=0x{ex.HResult:X8} | " +
+                $"Message={ex.Message}");
         }
     }
 
