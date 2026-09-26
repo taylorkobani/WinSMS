@@ -9,4 +9,6 @@ public interface IMessageArchiveService
     Task<IReadOnlyList<SmsMessage>> LoadAllMessagesAsync();
     Task DeleteMessageAsync(Guid messageId);
     Task UpdateMessageAsync(SmsMessage message);
+    Task<IReadOnlyList<SmsConversation>> LoadConversationsAsync();
+    Task<SmsConversation?> LoadConversationAsync(string phoneNumber);
 }
