@@ -57,6 +57,23 @@ public partial class InboxViewModel : ObservableObject
 
     public Task LoadAsync() => RefreshAsync();
 
+    public async Task SelectConversationAsync(string phoneNumber)
+    {
+        var key = NormalizePhoneNumber(phoneNumber);
+        var conversation = Conversations.FirstOrDefault(
+            c => NormalizePhoneNumber(c.PhoneNumber) == key);
+
+        if (conversation == null)
+        {
+            await RefreshAsync();
+            conversation = Conversations.FirstOrDefault(
+                c => NormalizePhoneNumber(c.PhoneNumber) == key);
+        }
+
+        if (conversation != null)
+            SelectedConversation = conversation;
+    }
+
     [RelayCommand]
     private async Task RefreshAsync()
     {
