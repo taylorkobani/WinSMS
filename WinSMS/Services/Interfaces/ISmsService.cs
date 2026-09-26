@@ -8,6 +8,7 @@ public interface ISmsService
     Task<IReadOnlyList<SmsMessage>> GetUnreadMessagesAsync(CancellationToken cancellationToken = default);
     Task<SmsMessage> SendMessageAsync(string phoneNumber, string body, CancellationToken cancellationToken = default);
     Task MarkAsReadAsync(SmsMessage message);
+    string GetCurrentPhoneNumber();
 
     event EventHandler<SmsMessage>? MessageReceived;
 }
