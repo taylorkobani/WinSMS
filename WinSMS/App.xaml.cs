@@ -39,6 +39,7 @@ public partial class App : Application
         services.AddSingleton<IMessageArchiveService, XmlMessageArchiveService>();
         services.AddSingleton<ISmsService, SmsService>();
         services.AddSingleton<PhoneProfileService>();
+        services.AddSingleton<BlockedNumberService>();
 
         // ViewModels
         services.AddTransient<InboxViewModel>();
