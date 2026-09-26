@@ -4,8 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <ScrollViewer Margin="16">
-        <StackPanel MaxWidth="600" Spacing="12">
+    <ScrollViewer Margin="16" HorizontalContentAlignment="Stretch">
+        <StackPanel Spacing="12">
             <TextBlock Text="New Message" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8"/>
 
             <TextBlock Text="To"/>
