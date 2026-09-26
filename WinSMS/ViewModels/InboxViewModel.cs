@@ -55,6 +55,8 @@ public partial class InboxViewModel : ObservableObject
         _smsService.MessageReceived += OnMessageReceived;
     }
 
+    public Task LoadAsync() => RefreshAsync();
+
     [RelayCommand]
     private async Task RefreshAsync()
     {
