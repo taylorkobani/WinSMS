@@ -44,6 +44,8 @@ public sealed partial class MainWindow : Window
     private bool _trayIconVisible;
     private string? _notificationPhoneNumber;
     private readonly SmsNotificationWindow _smsNotificationWindow;
+    private bool _closeConfirmed;
+    private bool _closeDialogOpen;
 
     public MainWindow()
     {
@@ -63,6 +65,7 @@ public sealed partial class MainWindow : Window
         _wndProc = WindowProc;
         _oldWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC,
             Marshal.GetFunctionPointerForDelegate(_wndProc));
+        _appWindow.Closing += AppWindow_Closing;
         Closed += MainWindow_Closed;
 
         var smsService = App.Services.GetRequiredService<ISmsService>();
@@ -228,8 +231,45 @@ public sealed partial class MainWindow : Window
         return LoadIcon(IntPtr.Zero, new IntPtr(32512));
     }
 
+    private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_closeConfirmed)
+            return;
+
+        // AppWindow.Closing is cancellable, so keep the app alive while the
+        // confirmation dialog is shown. Guard against repeated close clicks.
+        args.Cancel = true;
+        if (_closeDialogOpen)
+            return;
+
+        _closeDialogOpen = true;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = "Exit WinSMS?",
+                Content = "Are you sure you want to close WinSMS?",
+                PrimaryButtonText = "Exit",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close
+            };
+
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            {
+                _closeConfirmed = true;
+                Close();
+            }
+        }
+        finally
+        {
+            _closeDialogOpen = false;
+        }
+    }
+
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        _appWindow.Closing -= AppWindow_Closing;
         App.Services.GetRequiredService<ISmsService>().MessageReceived -= OnSmsMessageReceived;
         RemoveTrayIcon();
 
