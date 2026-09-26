@@ -86,14 +86,16 @@ public sealed partial class InboxPage : Page
                 : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
 
             var outgoingForeground = new SolidColorBrush(Colors.White);
+            var incomingForeground = new SolidColorBrush(Colors.Black);
+
             if (body != null)
-                body.Foreground = outgoing ? outgoingForeground : null;
+                body.Foreground = outgoing ? outgoingForeground : incomingForeground;
             if (timestamp != null)
-                timestamp.Foreground = outgoing ? outgoingForeground : null;
+                timestamp.Foreground = outgoing ? outgoingForeground : incomingForeground;
             if (status != null)
             {
                 status.Visibility = outgoing ? Visibility.Visible : Visibility.Collapsed;
-                status.Foreground = outgoing ? outgoingForeground : null;
+                status.Foreground = outgoing ? outgoingForeground : incomingForeground;
             }
 
             AnimateMessageBubble(bubble);
