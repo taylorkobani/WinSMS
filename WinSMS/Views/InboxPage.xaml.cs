@@ -31,6 +31,14 @@ public sealed partial class InboxPage : Page
         await ViewModel.LoadAsync();
         ObserveSelectedConversation();
         ScrollConversationToEnd();
+
+        foreach (var item in MessageList.Items.OfType<SmsConversation>())
+        {
+            var container = MessageList.ContainerFromItem(item) as ListViewItem;
+            var button = container == null ? null : FindDescendant<Button>(container, "BlockConversationButton");
+            if (button != null)
+                UpdateBlockButton(button, ViewModel.IsBlocked(item));
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -77,6 +85,26 @@ public sealed partial class InboxPage : Page
 
         if (ViewModel.SendReplyCommand.CanExecute(null))
             ViewModel.SendReplyCommand.Execute(null);
+    }
+
+    private async void BlockConversationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SmsConversation conversation } button)
+            return;
+
+        var blocked = await ViewModel.ToggleBlockedAsync(conversation);
+        UpdateBlockButton(button, blocked);
+    }
+
+    private void UpdateBlockButton(Button button, bool blocked)
+    {
+        button.ToolTipService.ToolTip = blocked ? "Unblock number" : "Block number";
+        button.Opacity = blocked ? 1.0 : 0.65;
+
+        if (button.Content is FontIcon icon)
+            icon.Foreground = blocked
+                ? new SolidColorBrush(Colors.Red)
+                : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
     }
 
     private async void DeleteConversationButton_Click(object sender, RoutedEventArgs e)
