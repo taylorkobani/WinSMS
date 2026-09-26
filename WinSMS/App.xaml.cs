@@ -40,6 +40,7 @@ public partial class App : Application
         services.AddSingleton<ISmsService, SmsService>();
         services.AddSingleton<PhoneProfileService>();
         services.AddSingleton<BlockedNumberService>();
+        services.AddSingleton<StartupService>();
 
         // ViewModels
         services.AddTransient<InboxViewModel>();
