@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using Windows.UI;
 using WinSMS.Services;
 using WinSMS.Services.Interfaces;
+using WinSMS.ViewModels;
+using WinSMS.Models;
 using WinSMS.Views;
 
 namespace WinSMS;
@@ -22,9 +24,13 @@ public sealed partial class MainWindow : Window
     private const int GWL_WNDPROC = -4;
     private const uint NIM_ADD = 0x00000000;
     private const uint NIM_DELETE = 0x00000002;
+    private const uint NIM_MODIFY = 0x00000001;
     private const uint NIF_MESSAGE = 0x00000001;
     private const uint NIF_ICON = 0x00000002;
     private const uint NIF_TIP = 0x00000004;
+    private const uint NIF_INFO = 0x00000010;
+    private const uint NIIF_INFO = 0x00000001;
+    private const uint NIN_BALLOONUSERCLICK = WM_APP + 5;
     private const uint IMAGE_ICON = 1;
     private const uint LR_LOADFROMFILE = 0x00000010;
 
@@ -34,6 +40,8 @@ public sealed partial class MainWindow : Window
     private IntPtr _oldWndProc;
     private IntPtr _trayIconHandle;
     private bool _trayIconVisible;
+    private string? _notificationPhoneNumber;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -50,6 +58,9 @@ public sealed partial class MainWindow : Window
             Marshal.GetFunctionPointerForDelegate(_wndProc));
         Closed += MainWindow_Closed;
 
+        var smsService = App.Services.GetRequiredService<ISmsService>();
+        smsService.MessageReceived += OnSmsMessageReceived;
+
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
         phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
         UpdatePhoneProfile();
@@ -64,8 +75,15 @@ public sealed partial class MainWindow : Window
         else if (msg == WM_TRAYICON)
         {
             var mouseMessage = unchecked((uint)lParam.ToInt64());
-            if (mouseMessage == WM_LBUTTONUP || mouseMessage == WM_LBUTTONDBLCLK)
+            if (mouseMessage == NIN_BALLOONUSERCLICK)
+            {
+                var phoneNumber = _notificationPhoneNumber;
+                DispatcherQueue.TryEnqueue(async () => await RestoreConversationAsync(phoneNumber));
+            }
+            else if (mouseMessage == WM_LBUTTONUP || mouseMessage == WM_LBUTTONDBLCLK)
+            {
                 DispatcherQueue.TryEnqueue(RestoreFromTray);
+            }
         }
 
         return CallWindowProc(_oldWndProc, hwnd, msg, wParam, lParam);
@@ -91,6 +109,60 @@ public sealed partial class MainWindow : Window
 
         SetForegroundWindow(_hwnd);
         RemoveTrayIcon();
+    }
+
+    private void OnSmsMessageReceived(object? sender, SmsMessage message)
+    {
+        if (!_trayIconVisible)
+            return;
+
+        DispatcherQueue.TryEnqueue(() => ShowSmsBalloon(message));
+    }
+
+    private void ShowSmsBalloon(SmsMessage message)
+    {
+        if (!_trayIconVisible)
+            return;
+
+        _notificationPhoneNumber = message.PhoneNumber;
+
+        var data = CreateNotifyIconData();
+        data.uFlags = NIF_INFO;
+        data.szInfoTitle = message.PhoneNumber;
+        data.szInfo = Truncate(message.Body, 255);
+        data.dwInfoFlags = NIIF_INFO;
+        Shell_NotifyIcon(NIM_MODIFY, ref data);
+    }
+
+    private async Task RestoreConversationAsync(string? phoneNumber)
+    {
+        RestoreFromTray();
+
+        var inboxItem = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), "Inbox", StringComparison.Ordinal));
+
+        if (inboxItem != null)
+            NavView.SelectedItem = inboxItem;
+
+        if (ContentFrame.CurrentSourcePageType != typeof(InboxPage))
+            ContentFrame.Navigate(typeof(InboxPage));
+
+        if (!string.IsNullOrWhiteSpace(phoneNumber) &&
+            ContentFrame.Content is InboxPage inboxPage)
+        {
+            await inboxPage.ViewModel.SelectConversationAsync(phoneNumber);
+        }
+
+        _notificationPhoneNumber = null;
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        return value.Length <= maxLength ? value : value[..maxLength];
     }
 
     private void AddTrayIcon()
@@ -149,6 +221,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        App.Services.GetRequiredService<ISmsService>().MessageReceived -= OnSmsMessageReceived;
         RemoveTrayIcon();
 
         if (_oldWndProc != IntPtr.Zero)
