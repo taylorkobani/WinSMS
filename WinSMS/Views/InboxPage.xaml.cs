@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using WinSMS.Models;
 using WinSMS.ViewModels;
 
@@ -52,6 +54,88 @@ public sealed partial class InboxPage : Page
 
     private void OnConversationMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
         => ScrollConversationToEnd();
+
+
+    private void ConversationMessageList_ContainerContentChanging(
+        ListViewBase sender,
+        ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue || args.Item is not SmsMessage message)
+            return;
+
+        args.RegisterUpdateCallback((_, updateArgs) =>
+        {
+            if (updateArgs.ItemContainer.ContentTemplateRoot is not Grid row)
+                return;
+
+            var bubble = FindDescendant<Border>(row, "MessageBubble");
+            var status = FindDescendant<TextBlock>(row, "MessageStatus");
+            if (bubble == null) return;
+
+            var outgoing = message.Direction == SmsDirection.Outgoing;
+
+            bubble.HorizontalAlignment = outgoing
+                ? HorizontalAlignment.Right
+                : HorizontalAlignment.Left;
+
+            bubble.Background = outgoing
+                ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
+                : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+
+            if (status != null)
+                status.Visibility = outgoing ? Visibility.Visible : Visibility.Collapsed;
+
+            AnimateMessageBubble(bubble);
+        });
+    }
+
+    private static T? FindDescendant<T>(DependencyObject parent, string name)
+        where T : FrameworkElement
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T element && element.Name == name)
+                return element;
+
+            var nested = FindDescendant<T>(child, name);
+            if (nested != null)
+                return nested;
+        }
+
+        return null;
+    }
+
+    private static void AnimateMessageBubble(FrameworkElement bubble)
+    {
+        bubble.Opacity = 0;
+        bubble.RenderTransform = new TranslateTransform { Y = 18 };
+
+        var storyboard = new Storyboard();
+
+        var slide = new DoubleAnimation
+        {
+            From = 18,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(220),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(slide, bubble);
+        Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(TranslateTransform.Y)");
+
+        var fade = new DoubleAnimation
+        {
+            From = 0,
+            To = 1,
+            Duration = TimeSpan.FromMilliseconds(180)
+        };
+        Storyboard.SetTarget(fade, bubble);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+
+        storyboard.Children.Add(slide);
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
+    }
 
     private void ScrollConversationToEnd()
     {
