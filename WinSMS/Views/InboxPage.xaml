@@ -72,6 +72,10 @@
                             Command="{x:Bind ViewModel.MarkConversationAsReadCommand}"
                             CommandParameter="{x:Bind ViewModel.SelectedConversation, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
+                    <Button Content="Delete Conversation"
+                            Command="{x:Bind ViewModel.DeleteConversationCommand}"
+                            CommandParameter="{x:Bind ViewModel.SelectedConversation, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
                     <ProgressRing IsActive="{x:Bind ViewModel.IsSending, Mode=OneWay}" Width="20" Height="20"/>
                 </StackPanel>
             </Grid>
