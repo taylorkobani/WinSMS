@@ -2,6 +2,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Windowing;
+using System.Runtime.InteropServices;
 using Windows.UI;
 using WinSMS.Services;
 using WinSMS.Services.Interfaces;
@@ -11,6 +13,27 @@ namespace WinSMS;
 
 public sealed partial class MainWindow : Window
 {
+    private const uint WM_SIZE = 0x0005;
+    private const uint WM_APP = 0x8000;
+    private const uint WM_TRAYICON = WM_APP + 1;
+    private const uint WM_LBUTTONUP = 0x0202;
+    private const uint WM_LBUTTONDBLCLK = 0x0203;
+    private const int SIZE_MINIMIZED = 1;
+    private const int GWL_WNDPROC = -4;
+    private const uint NIM_ADD = 0x00000000;
+    private const uint NIM_DELETE = 0x00000002;
+    private const uint NIF_MESSAGE = 0x00000001;
+    private const uint NIF_ICON = 0x00000002;
+    private const uint NIF_TIP = 0x00000004;
+    private const uint IMAGE_ICON = 1;
+    private const uint LR_LOADFROMFILE = 0x00000010;
+
+    private readonly IntPtr _hwnd;
+    private readonly AppWindow _appWindow;
+    private readonly WndProcDelegate _wndProc;
+    private IntPtr _oldWndProc;
+    private IntPtr _trayIconHandle;
+    private bool _trayIconVisible;
     public MainWindow()
     {
         InitializeComponent();
@@ -18,10 +41,175 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
+        _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_hwnd);
+        _appWindow = AppWindow.GetFromWindowId(windowId);
+
+        _wndProc = WindowProc;
+        _oldWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC,
+            Marshal.GetFunctionPointerForDelegate(_wndProc));
+        Closed += MainWindow_Closed;
+
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
         phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
         UpdatePhoneProfile();
     }
+
+    private IntPtr WindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_SIZE && wParam.ToInt32() == SIZE_MINIMIZED)
+        {
+            DispatcherQueue.TryEnqueue(MinimizeToTray);
+        }
+        else if (msg == WM_TRAYICON)
+        {
+            var mouseMessage = unchecked((uint)lParam.ToInt64());
+            if (mouseMessage == WM_LBUTTONUP || mouseMessage == WM_LBUTTONDBLCLK)
+                DispatcherQueue.TryEnqueue(RestoreFromTray);
+        }
+
+        return CallWindowProc(_oldWndProc, hwnd, msg, wParam, lParam);
+    }
+
+    private void MinimizeToTray()
+    {
+        if (_trayIconVisible)
+            return;
+
+        AddTrayIcon();
+        _appWindow.IsShownInSwitchers = false;
+        _appWindow.Hide();
+    }
+
+    private void RestoreFromTray()
+    {
+        _appWindow.Show();
+        _appWindow.IsShownInSwitchers = true;
+
+        if (_appWindow.Presenter is OverlappedPresenter presenter)
+            presenter.Restore();
+
+        SetForegroundWindow(_hwnd);
+        RemoveTrayIcon();
+    }
+
+    private void AddTrayIcon()
+    {
+        if (_trayIconVisible)
+            return;
+
+        _trayIconHandle = GetApplicationIcon();
+
+        var data = CreateNotifyIconData();
+        data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+        data.uCallbackMessage = WM_TRAYICON;
+        data.hIcon = _trayIconHandle;
+        data.szTip = "WinSMS";
+
+        if (Shell_NotifyIcon(NIM_ADD, ref data))
+            _trayIconVisible = true;
+    }
+
+    private void RemoveTrayIcon()
+    {
+        if (!_trayIconVisible)
+            return;
+
+        var data = CreateNotifyIconData();
+        Shell_NotifyIcon(NIM_DELETE, ref data);
+        _trayIconVisible = false;
+
+        if (_trayIconHandle != IntPtr.Zero)
+        {
+            DestroyIcon(_trayIconHandle);
+            _trayIconHandle = IntPtr.Zero;
+        }
+    }
+
+    private NOTIFYICONDATA CreateNotifyIconData() => new()
+    {
+        cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>(),
+        hWnd = _hwnd,
+        uID = 1
+    };
+
+    private static IntPtr GetApplicationIcon()
+    {
+        var executable = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(executable))
+        {
+            var icons = new IntPtr[1];
+            if (ExtractIconEx(executable, 0, icons, null, 1) > 0 &&
+                icons[0] != IntPtr.Zero)
+                return icons[0];
+        }
+
+        return LoadIcon(IntPtr.Zero, new IntPtr(32512));
+    }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        RemoveTrayIcon();
+
+        if (_oldWndProc != IntPtr.Zero)
+        {
+            SetWindowLongPtr(_hwnd, GWL_WNDPROC, _oldWndProc);
+            _oldWndProc = IntPtr.Zero;
+        }
+    }
+
+    private delegate IntPtr WndProcDelegate(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct NOTIFYICONDATA
+    {
+        public uint cbSize;
+        public IntPtr hWnd;
+        public uint uID;
+        public uint uFlags;
+        public uint uCallbackMessage;
+        public IntPtr hIcon;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string szTip;
+        public uint dwState;
+        public uint dwStateMask;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string szInfo;
+        public uint uTimeoutOrVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string szInfoTitle;
+        public uint dwInfoFlags;
+        public Guid guidItem;
+        public IntPtr hBalloonIcon;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(
+        string szFileName, int nIconIndex, IntPtr[]? phiconLarge,
+        IntPtr[]? phiconSmall, uint nIcons);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr LoadIcon(IntPtr hInstance, IntPtr lpIconName);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallWindowProc(
+        IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(
+        IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     private void UpdatePhoneProfile()
     {
