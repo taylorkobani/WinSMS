@@ -6,6 +6,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Windows.System;
+using Windows.UI.Core;
 using WinSMS.Models;
 using WinSMS.ViewModels;
 
@@ -39,6 +41,38 @@ public sealed partial class InboxPage : Page
         {
             ObserveSelectedConversation();
             ScrollConversationToEnd();
+            FocusReplyTextBox();
+        }
+    }
+
+    private void FocusReplyTextBox()
+    {
+        if (ViewModel.SelectedConversation == null)
+            return;
+
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            ReplyTextBox.Focus(FocusState.Programmatic);
+            ReplyTextBox.SelectionStart = ReplyTextBox.Text?.Length ?? 0;
+        });
+    }
+
+    private void ReplyTextBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Enter)
+            return;
+
+        var shiftDown =
+            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                .HasFlag(CoreVirtualKeyStates.Down);
+
+        if (shiftDown)
+            return;
+
+        if (ViewModel.SendReplyCommand.CanExecute(null))
+        {
+            e.Handled = true;
+            ViewModel.SendReplyCommand.Execute(null);
         }
     }
 
