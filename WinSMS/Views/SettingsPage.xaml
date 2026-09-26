@@ -16,6 +16,11 @@
                        TextWrapping="Wrap"
                        Margin="28,-10,0,8"/>
 
+            <TextBlock Text="Data" Style="{StaticResource SubtitleTextBlockStyle}"/>
+            <Button Content="Open Data Folder"
+                    HorizontalAlignment="Left"
+                    Click="OpenDataFolder_Click"/>
+
             <TextBlock Text="Windows SMS" Style="{StaticResource SubtitleTextBlockStyle}"/>
             <TextBlock Text="Check the Windows mobile broadband SMS device used by WinSMS."
                        TextWrapping="Wrap"/>
