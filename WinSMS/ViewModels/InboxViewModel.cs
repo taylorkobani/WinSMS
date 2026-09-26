@@ -106,12 +106,12 @@ public partial class InboxViewModel : ObservableObject
             if (sent.Status == SmsStatus.Sent)
             {
                 ReplyBody = string.Empty;
-                await RefreshAsync();
+                AddMessageToConversation(SelectedConversation, sent);
             }
             else
             {
                 StatusMessage = sent.Error ?? "Failed to send message.";
-                await RefreshAsync();
+                AddMessageToConversation(SelectedConversation, sent);
             }
         }
         catch (Exception ex)
@@ -171,30 +171,34 @@ public partial class InboxViewModel : ObservableObject
 
     private void OnMessageReceived(object? sender, SmsMessage message)
     {
-        // SmsService archives the message before raising this event. Reloading from
-        // the archive makes the XML conversation the single source of truth and
-        // also replaces SelectedConversation so x:Bind re-evaluates its Messages.
-        _dispatcher.TryEnqueue(async () =>
+        _dispatcher.TryEnqueue(() =>
         {
-            var incomingKey = NormalizePhoneNumber(message.PhoneNumber);
-            var selectedKey = SelectedConversation == null
-                ? null
-                : NormalizePhoneNumber(SelectedConversation.PhoneNumber);
+            var key = NormalizePhoneNumber(message.PhoneNumber);
+            var conversation = Conversations.FirstOrDefault(
+                c => NormalizePhoneNumber(c.PhoneNumber) == key);
 
-            await RefreshAsync();
-
-            var incomingConversation = Conversations.FirstOrDefault(
-                c => NormalizePhoneNumber(c.PhoneNumber) == incomingKey);
-
-            // Keep the user's current conversation selected unless this is the
-            // conversation that just received the message.
-            if (incomingConversation != null &&
-                (selectedKey == null || selectedKey == incomingKey))
+            if (conversation == null)
             {
-                SelectedConversation = null;
-                SelectedConversation = incomingConversation;
+                conversation = new SmsConversation { PhoneNumber = message.PhoneNumber };
+                conversation.Messages.Add(message);
+                Conversations.Insert(0, conversation);
+
+                if (SelectedConversation == null)
+                    SelectedConversation = conversation;
+
+                return;
             }
+
+            AddMessageToConversation(conversation, message);
         });
+    }
+
+    private static void AddMessageToConversation(SmsConversation conversation, SmsMessage message)
+    {
+        if (conversation.Messages.Any(m => m.Id == message.Id))
+            return;
+
+        conversation.Messages.Add(message);
     }
 
     private static string NormalizePhoneNumber(string phoneNumber)
