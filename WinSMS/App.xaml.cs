@@ -36,14 +36,11 @@ public partial class App : Application
         services.AddSingleton<AppSettings>();
 
         // Services
-        services.AddSingleton<IModemService, SerialModemService>();
         services.AddSingleton<IMessageArchiveService, XmlMessageArchiveService>();
         services.AddSingleton<ISmsService, SmsService>();
 
         // ViewModels
-        services.AddTransient<MainViewModel>();
         services.AddTransient<InboxViewModel>();
-        services.AddTransient<OutboxViewModel>();
         services.AddTransient<ComposeViewModel>();
         services.AddTransient<SettingsViewModel>();
 
