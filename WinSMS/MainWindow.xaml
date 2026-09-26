@@ -32,61 +32,6 @@
             </StackPanel>
         </Grid>
 
-        <Border x:Name="SmsNotification"
-                Grid.RowSpan="2"
-                Width="380"
-                Padding="16"
-                Margin="0,0,20,20"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Bottom"
-                Background="#FFF4B8"
-                BorderBrush="#D69E00"
-                BorderThickness="1"
-                CornerRadius="10"
-                Visibility="Collapsed"
-                Canvas.ZIndex="100">
-            <Grid RowSpacing="8">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <Grid ColumnSpacing="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock Text="New SMS"
-                                   Foreground="#201A00"
-                                   FontWeight="SemiBold"/>
-                        <TextBlock x:Name="SmsNotificationNumber"
-                                   Foreground="#201A00"
-                                   FontWeight="Bold"/>
-                    </StackPanel>
-                    <Button Grid.Column="1"
-                            Content="&#xE711;"
-                            FontFamily="Segoe Fluent Icons"
-                            Background="Transparent"
-                            Foreground="#201A00"
-                            Click="SmsNotificationDismiss_Click"
-                            ToolTipService.ToolTip="Dismiss"/>
-                </Grid>
-                <Button Grid.Row="1"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Left"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="0"
-                        Click="SmsNotification_Click">
-                    <TextBlock x:Name="SmsNotificationBody"
-                               Foreground="#201A00"
-                               TextWrapping="Wrap"
-                               MaxLines="4"
-                               TextTrimming="CharacterEllipsis"/>
-                </Button>
-            </Grid>
-        </Border>
-
         <NavigationView x:Name="NavView"
                         Grid.Row="1"
                         IsSettingsVisible="True"
