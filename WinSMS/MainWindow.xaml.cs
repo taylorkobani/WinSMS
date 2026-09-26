@@ -85,6 +85,7 @@ public sealed partial class MainWindow : Window
             {
                 "Inbox" => typeof(InboxPage),
                 "Compose" => typeof(ComposePage),
+                "Profiles" => typeof(ProfilesPage),
                 _ => typeof(InboxPage)
             };
             ContentFrame.Navigate(page);
