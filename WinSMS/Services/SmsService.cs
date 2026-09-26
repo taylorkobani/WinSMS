@@ -11,6 +11,7 @@ public class SmsService : ISmsService
     private readonly IModemService _modem;
     private readonly IMessageArchiveService _archive;
     private readonly ILogger<SmsService> _logger;
+    private SmsMessageRegistration? _messageRegistration;
 
     public event EventHandler<SmsMessage>? MessageReceived;
 
@@ -20,26 +21,25 @@ public class SmsService : ISmsService
         _archive = archive;
         _logger = logger;
         _modem.UnsolicitedMessageReceived += OnUnsolicitedMessageReceived;
+        InitializeWindowsSmsReceiving();
     }
 
     public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(CancellationToken cancellationToken = default)
     {
-        try
-        {
-            await _modem.SendCommandAsync("AT+CMGF=1", cancellationToken);
-            return ParseCmglResponse(await _modem.SendCommandAsync("AT+CMGL=\"ALL\"", cancellationToken));
-        }
-        catch (Exception ex) { _logger.LogError(ex, "Failed to retrieve SMS messages"); return Array.Empty<SmsMessage>(); }
+        cancellationToken.ThrowIfCancellationRequested();
+        var archived = await _archive.LoadAllMessagesAsync();
+        return archived.Where(m => m.Direction == SmsDirection.Incoming)
+                       .OrderBy(m => m.Timestamp)
+                       .ToList();
     }
 
     public async Task<IReadOnlyList<SmsMessage>> GetUnreadMessagesAsync(CancellationToken cancellationToken = default)
     {
-        try
-        {
-            await _modem.SendCommandAsync("AT+CMGF=1", cancellationToken);
-            return ParseCmglResponse(await _modem.SendCommandAsync("AT+CMGL=\"REC UNREAD\"", cancellationToken));
-        }
-        catch (Exception ex) { _logger.LogError(ex, "Failed to retrieve unread SMS messages"); return Array.Empty<SmsMessage>(); }
+        cancellationToken.ThrowIfCancellationRequested();
+        var archived = await _archive.LoadAllMessagesAsync();
+        return archived.Where(m => m.Direction == SmsDirection.Incoming && !m.IsRead)
+                       .OrderBy(m => m.Timestamp)
+                       .ToList();
     }
 
     public async Task<SmsMessage?> GetMessageByIndexAsync(int index, CancellationToken cancellationToken = default)
@@ -112,6 +112,72 @@ public class SmsService : ISmsService
     }
 
     public Task MarkAsReadAsync(SmsMessage message) { message.IsRead = true; return _archive.UpdateMessageAsync(message); }
+
+    private void InitializeWindowsSmsReceiving()
+    {
+        try
+        {
+            var existing = SmsMessageRegistration.AllRegistrations
+                .FirstOrDefault(r => r.Id == "WinSMS.TextMessages");
+
+            if (existing != null)
+            {
+                _messageRegistration = existing;
+            }
+            else
+            {
+                var rules = new SmsFilterRules(SmsFilterActionType.Accept);
+                rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
+                _messageRegistration = SmsMessageRegistration.Register("WinSMS.TextMessages", rules);
+            }
+
+            _messageRegistration.MessageReceived -= OnWindowsSmsMessageReceived;
+            _messageRegistration.MessageReceived += OnWindowsSmsMessageReceived;
+            _logger.LogInformation("Windows SMS receive registration is active.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to register for incoming Windows SMS messages.");
+        }
+    }
+
+    private async void OnWindowsSmsMessageReceived(
+        SmsMessageRegistration sender,
+        SmsMessageReceivedTriggerDetails details)
+    {
+        try
+        {
+            if (details.MessageType != SmsMessageType.Text)
+            {
+                details.Accept();
+                return;
+            }
+
+            var text = details.TextMessage;
+            var message = new SmsMessage
+            {
+                PhoneNumber = text.From ?? string.Empty,
+                Body = text.Body ?? string.Empty,
+                Timestamp = text.Timestamp,
+                Direction = SmsDirection.Incoming,
+                Status = SmsStatus.Received,
+                IsRead = false
+            };
+
+            // Acknowledge promptly so Windows can continue normal delivery,
+            // including delivery to the system/operator messaging application.
+            details.Accept();
+
+            await _archive.SaveMessageAsync(message);
+            _logger.LogInformation("Incoming SMS received from {PhoneNumber}", message.PhoneNumber);
+            MessageReceived?.Invoke(this, message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process an incoming Windows SMS message.");
+            try { details.Accept(); } catch { }
+        }
+    }
 
     private async void OnUnsolicitedMessageReceived(object? sender, string notification)
     {
