@@ -1,0 +1,81 @@
+<Page x:Name="RootPage"
+    x:Class="WinSMS.Views.ProfilesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:WinSMS.ViewModels"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <ScrollViewer Margin="16" HorizontalContentAlignment="Stretch">
+        <StackPanel Spacing="16">
+            <TextBlock Text="Profiles" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8"/>
+            <TextBlock Text="Profiles are stored separately for each phone number."
+                       Opacity="0.7"/>
+
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Profiles, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PhoneProfileItem">
+                        <Border Padding="16"
+                                Margin="0,0,0,10"
+                                CornerRadius="8"
+                                BorderThickness="1"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                            <Grid ColumnSpacing="12" RowSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="180"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind PhoneNumber}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="CURRENT"
+                                               FontSize="11"
+                                               FontWeight="Bold"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                               Visibility="{x:Bind IsCurrent, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </StackPanel>
+
+                                <TextBox Grid.Column="1"
+                                         Header="Profile name"
+                                         PlaceholderText="e.g. Personal, Work"
+                                         Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                <ComboBox Grid.Column="2"
+                                          Header="Color"
+                                          ItemsSource="{x:Bind ViewModel.ProfileColors, ElementName=RootPage}"
+                                          SelectedItem="{x:Bind Color, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Ellipse Width="16" Height="16" Loaded="ProfileColorSwatch_Loaded"/>
+                                                <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+
+                                <Button Grid.Column="3"
+                                        VerticalAlignment="Bottom"
+                                        Content="Save"
+                                        Click="SaveProfileButton_Click"
+                                        Tag="{x:Bind}"
+                                        Style="{StaticResource AccentButtonStyle}"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <InfoBar IsOpen="{x:Bind ViewModel.StatusMessage, Converter={StaticResource NullToBoolConverter}, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                     Severity="Informational"/>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
