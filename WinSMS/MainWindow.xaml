@@ -4,39 +4,57 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="WinSMS">
 
-    <NavigationView x:Name="NavView"
-                    IsSettingsVisible="True"
-                    PaneDisplayMode="Left"
-                    IsBackButtonVisible="Collapsed"
-                    SelectionChanged="NavView_SelectionChanged"
-                    Loaded="NavView_Loaded">
-        <NavigationView.PaneHeader>
-            <Border x:Name="PhoneProfilePill"
-                    Padding="10,4"
-                    Margin="0,4,0,8"
-                    CornerRadius="12"
-                    Visibility="Collapsed">
-                <TextBlock x:Name="PhoneProfileName"
-                           Foreground="White"
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="AppTitleBar"
+              Grid.Row="0"
+              Padding="12,0"
+              Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="10"
+                        VerticalAlignment="Center">
+                <TextBlock Text="WinSMS"
+                           VerticalAlignment="Center"
                            FontWeight="SemiBold"/>
-            </Border>
-        </NavigationView.PaneHeader>
+                <Border x:Name="PhoneProfilePill"
+                        Padding="10,3"
+                        CornerRadius="12"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="PhoneProfileName"
+                               Foreground="White"
+                               FontWeight="SemiBold"
+                               FontSize="12"/>
+                </Border>
+            </StackPanel>
+        </Grid>
 
-        <NavigationView.MenuItems>
-            <NavigationViewItem Content="Inbox" Tag="Inbox">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE715;"/>
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="New Message" Tag="Compose">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE70F;"/>
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-        </NavigationView.MenuItems>
+        <NavigationView x:Name="NavView"
+                        Grid.Row="1"
+                        IsSettingsVisible="True"
+                        PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed"
+                        SelectionChanged="NavView_SelectionChanged"
+                        Loaded="NavView_Loaded">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Inbox" Tag="Inbox">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE715;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="New Message" Tag="Compose">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE70F;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
 
-        <NavigationView.Content>
-            <Frame x:Name="ContentFrame"/>
-        </NavigationView.Content>
-    </NavigationView>
+            <NavigationView.Content>
+                <Frame x:Name="ContentFrame"/>
+            </NavigationView.Content>
+        </NavigationView>
+    </Grid>
 </Window>
