@@ -98,7 +98,7 @@ public sealed partial class InboxPage : Page
 
     private void UpdateBlockButton(Button button, bool blocked)
     {
-        button.ToolTipService.ToolTip = blocked ? "Unblock number" : "Block number";
+        ToolTipService.SetToolTip(button, blocked ? "Unblock number" : "Block number");
         button.Opacity = blocked ? 1.0 : 0.65;
 
         if (button.Content is FontIcon icon)
