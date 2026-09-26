@@ -15,6 +15,7 @@ public class SmsConversation : INotifyPropertyChanged
     }
 
     public string PhoneNumber { get; set; } = string.Empty;
+    public string LocalPhoneNumber { get; set; } = string.Empty;
 
     public ObservableCollection<SmsMessage> Messages
     {
