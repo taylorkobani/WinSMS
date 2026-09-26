@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Xml.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -244,7 +245,7 @@ public class XmlMessageArchiveService : IMessageArchiveService
             .Select(g => new SmsConversation
             {
                 PhoneNumber = g.OrderByDescending(m => m.Timestamp).First().PhoneNumber,
-                Messages = g.OrderBy(m => m.Timestamp).ToList()
+                Messages = new ObservableCollection<SmsMessage>(g.OrderBy(m => m.Timestamp))
             })
             .OrderByDescending(c => c.LastMessageTimestamp)
             .ToList();
@@ -259,7 +260,7 @@ public class XmlMessageArchiveService : IMessageArchiveService
         return messages.Count == 0 ? null : new SmsConversation
         {
             PhoneNumber = messages[^1].PhoneNumber,
-            Messages = messages
+            Messages = new ObservableCollection<SmsMessage>(messages)
         };
     }
 
