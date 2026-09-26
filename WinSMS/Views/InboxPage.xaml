@@ -29,7 +29,7 @@
                 </ListView.ItemTemplate>
             </ListView>
             <Grid Grid.Column="1" Padding="16">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="{x:Bind ViewModel.SelectedConversation.PhoneNumber, Mode=OneWay}"
                            Style="{StaticResource SubtitleTextBlockStyle}"
                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
@@ -47,11 +47,33 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <Button Grid.Row="2" Content="Mark Conversation as Read"
-                        Command="{x:Bind ViewModel.MarkConversationAsReadCommand}"
-                        CommandParameter="{x:Bind ViewModel.SelectedConversation, Mode=OneWay}"
-                        Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"
-                        HorizontalAlignment="Left"/>
+                <Grid Grid.Row="2" ColumnSpacing="8"
+                      Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0"
+                             PlaceholderText="Type a message..."
+                             Text="{x:Bind ViewModel.ReplyBody, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MinHeight="44"
+                             MaxHeight="120"/>
+                    <Button Grid.Column="1"
+                            Command="{x:Bind ViewModel.SendReplyCommand}"
+                            Style="{StaticResource AccentButtonStyle}"
+                            VerticalAlignment="Bottom">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE724;"/>
+                            <TextBlock Text="Send"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
+                    <Button Content="Mark Conversation as Read"
+                            Command="{x:Bind ViewModel.MarkConversationAsReadCommand}"
+                            CommandParameter="{x:Bind ViewModel.SelectedConversation, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsSending, Mode=OneWay}" Width="20" Height="20"/>
+                </StackPanel>
             </Grid>
         </Grid>
         <ProgressBar Grid.Row="2" IsIndeterminate="True" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"/>
