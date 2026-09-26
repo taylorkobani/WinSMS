@@ -16,6 +16,7 @@ public sealed partial class ProfilesPage : Page
     {
         ViewModel = App.Services.GetRequiredService<ProfilesViewModel>();
         InitializeComponent();
+        DataContext = ViewModel;
     }
 
     private async void SaveProfileButton_Click(object sender, RoutedEventArgs e)
