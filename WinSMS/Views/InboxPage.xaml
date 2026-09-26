@@ -15,7 +15,7 @@
         </Grid>
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <ListView Grid.Column="0" ItemsSource="{x:Bind ViewModel.Conversations}"
+            <ListView x:Name="MessageList" Grid.Column="0" ItemsSource="{x:Bind ViewModel.Conversations}"
                       SelectedItem="{x:Bind ViewModel.SelectedConversation, Mode=TwoWay}" SelectionMode="Single"
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <ListView.ItemTemplate>
