@@ -70,7 +70,9 @@ public partial class InboxViewModel : ObservableObject
                 Conversations.Add(conversation);
             SelectedConversation = selectedNumber == null
                 ? Conversations.FirstOrDefault()
-                : Conversations.FirstOrDefault(c => c.PhoneNumber == selectedNumber) ?? Conversations.FirstOrDefault();
+                : Conversations.FirstOrDefault(c =>
+                    NormalizePhoneNumber(c.PhoneNumber) == NormalizePhoneNumber(selectedNumber))
+                  ?? Conversations.FirstOrDefault();
         }
         catch (Exception ex)
         {
@@ -148,29 +150,29 @@ public partial class InboxViewModel : ObservableObject
 
     private void OnMessageReceived(object? sender, SmsMessage message)
     {
-        _dispatcher.TryEnqueue(() =>
+        // SmsService archives the message before raising this event. Reloading from
+        // the archive makes the XML conversation the single source of truth and
+        // also replaces SelectedConversation so x:Bind re-evaluates its Messages.
+        _dispatcher.TryEnqueue(async () =>
         {
-            var key = NormalizePhoneNumber(message.PhoneNumber);
-            var conversation = Conversations.FirstOrDefault(
-                c => NormalizePhoneNumber(c.PhoneNumber) == key);
+            var incomingKey = NormalizePhoneNumber(message.PhoneNumber);
+            var selectedKey = SelectedConversation == null
+                ? null
+                : NormalizePhoneNumber(SelectedConversation.PhoneNumber);
 
-            if (conversation == null)
+            await RefreshAsync();
+
+            var incomingConversation = Conversations.FirstOrDefault(
+                c => NormalizePhoneNumber(c.PhoneNumber) == incomingKey);
+
+            // Keep the user's current conversation selected unless this is the
+            // conversation that just received the message.
+            if (incomingConversation != null &&
+                (selectedKey == null || selectedKey == incomingKey))
             {
-                conversation = new SmsConversation { PhoneNumber = message.PhoneNumber };
-                conversation.Messages.Add(message);
-                Conversations.Insert(0, conversation);
+                SelectedConversation = null;
+                SelectedConversation = incomingConversation;
             }
-            else
-            {
-                if (!conversation.Messages.Any(m => m.Id == message.Id))
-                    conversation.Messages.Add(message);
-
-                var index = Conversations.IndexOf(conversation);
-                if (index > 0)
-                    Conversations.Move(index, 0);
-            }
-
-            SelectedConversation = conversation;
         });
     }
 
