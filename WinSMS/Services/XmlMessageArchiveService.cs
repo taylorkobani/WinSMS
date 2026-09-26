@@ -34,7 +34,12 @@ public class XmlMessageArchiveService : IMessageArchiveService
             var doc = LoadOrCreateConversationDocument(filePath, message.PhoneNumber);
 
             var root = doc.Root!;
-            root.Add(MessageToXml(message));
+            var existing = root.Descendants("Message")
+                .FirstOrDefault(e => e.Element("Id")?.Value == message.Id.ToString());
+            if (existing != null)
+                existing.ReplaceWith(MessageToXml(message));
+            else
+                root.Add(MessageToXml(message));
             await SaveDocumentAsync(doc, filePath);
         }
         catch (Exception ex)
