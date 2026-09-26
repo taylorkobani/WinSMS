@@ -39,6 +39,14 @@ public partial class InboxViewModel : ObservableObject
     [ObservableProperty]
     private string? _statusMessage;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendReplyCommand))]
+    private string _replyBody = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendReplyCommand))]
+    private bool _isSending;
+
     public InboxViewModel(ISmsService smsService, IMessageArchiveService archive)
     {
         _smsService = smsService;
@@ -74,6 +82,45 @@ public partial class InboxViewModel : ObservableObject
         }
     }
 
+    private bool CanSendReply()
+        => SelectedConversation != null && !string.IsNullOrWhiteSpace(ReplyBody) && !IsSending;
+
+    partial void OnSelectedConversationChanged(SmsConversation? value)
+        => SendReplyCommand.NotifyCanExecuteChanged();
+
+    [RelayCommand(CanExecute = nameof(CanSendReply))]
+    private async Task SendReplyAsync()
+    {
+        if (SelectedConversation == null || string.IsNullOrWhiteSpace(ReplyBody)) return;
+
+        var number = SelectedConversation.PhoneNumber;
+        var body = ReplyBody.Trim();
+        IsSending = true;
+        StatusMessage = null;
+        try
+        {
+            var sent = await _smsService.SendMessageAsync(number, body);
+            if (sent.Status == SmsStatus.Sent)
+            {
+                ReplyBody = string.Empty;
+                await RefreshAsync();
+            }
+            else
+            {
+                StatusMessage = sent.Error ?? "Failed to send message.";
+                await RefreshAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to send message: {ex.Message}";
+        }
+        finally
+        {
+            IsSending = false;
+        }
+    }
+
     [RelayCommand]
     private async Task MarkConversationAsReadAsync(SmsConversation conversation)
     {
@@ -101,7 +148,38 @@ public partial class InboxViewModel : ObservableObject
 
     private void OnMessageReceived(object? sender, SmsMessage message)
     {
-        _dispatcher.TryEnqueue(async () => await RefreshAsync());
+        _dispatcher.TryEnqueue(() =>
+        {
+            var key = NormalizePhoneNumber(message.PhoneNumber);
+            var conversation = Conversations.FirstOrDefault(
+                c => NormalizePhoneNumber(c.PhoneNumber) == key);
+
+            if (conversation == null)
+            {
+                conversation = new SmsConversation { PhoneNumber = message.PhoneNumber };
+                conversation.Messages.Add(message);
+                Conversations.Insert(0, conversation);
+            }
+            else
+            {
+                if (!conversation.Messages.Any(m => m.Id == message.Id))
+                    conversation.Messages.Add(message);
+
+                var index = Conversations.IndexOf(conversation);
+                if (index > 0)
+                    Conversations.Move(index, 0);
+            }
+
+            SelectedConversation = conversation;
+        });
+    }
+
+    private static string NormalizePhoneNumber(string phoneNumber)
+    {
+        var digits = new string((phoneNumber ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("00")) digits = digits[2..];
+        if (digits.StartsWith("0") && digits.Length >= 10) digits = "44" + digits[1..];
+        return digits;
     }
 
     public string? GetSenderNumber() => SelectedConversation?.PhoneNumber;
