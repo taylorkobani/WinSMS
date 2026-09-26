@@ -55,7 +55,7 @@ public sealed partial class InboxPage : Page
         });
     }
 
-    private void ReplyTextBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    private void ReplyTextBox_PreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         // Avoid a Windows.System dependency here. WinUI reports Enter as virtual-key 13.
         if ((int)e.Key != 13)
