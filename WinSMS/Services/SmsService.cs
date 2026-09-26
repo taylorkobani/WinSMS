@@ -116,54 +116,28 @@ public class SmsService : ISmsService
     private void InitializeWindowsSmsReceiving()
     {
         const string registrationId = "WinSMS.TextMessages";
-        string step = "starting";
 
         try
         {
-            step = "reading SmsMessageRegistration.AllRegistrations";
-            _logger.LogInformation("SMS registration diagnostic: {Step}", step);
-
-            var registrations = SmsMessageRegistration.AllRegistrations;
-            _logger.LogInformation(
-                "SMS registration diagnostic: Windows returned {Count} registration(s).",
-                registrations.Count);
-
-            step = "looking for existing WinSMS registration";
-            var existing = registrations.FirstOrDefault(r => r.Id == registrationId);
+            // Do not reuse a registration left behind by a previous WinSMS process.
+            // Windows can enumerate that registration, but subscribing to its
+            // MessageReceived event can fail with 0xD000000D. Recreate it so the
+            // event source belongs to this process.
+            var existing = SmsMessageRegistration.AllRegistrations
+                .FirstOrDefault(r => r.Id == registrationId);
 
             if (existing != null)
             {
                 _logger.LogInformation(
-                    "SMS registration diagnostic: existing registration {RegistrationId} found.",
+                    "Removing stale SMS registration {RegistrationId} before re-registering.",
                     registrationId);
-                _messageRegistration = existing;
-            }
-            else
-            {
-                step = "creating SMS filter rules";
-                _logger.LogInformation("SMS registration diagnostic: {Step}", step);
-
-                var rules = new SmsFilterRules(SmsFilterActionType.Accept);
-                rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
-
-                step = "calling SmsMessageRegistration.Register";
-                _logger.LogInformation(
-                    "SMS registration diagnostic: registering {RegistrationId}.",
-                    registrationId);
-
-                _messageRegistration = SmsMessageRegistration.Register(registrationId, rules);
-
-                _logger.LogInformation(
-                    "SMS registration diagnostic: registration {RegistrationId} created.",
-                    registrationId);
+                existing.Unregister();
             }
 
-            step = "detaching previous MessageReceived handler";
-            _logger.LogInformation("SMS registration diagnostic: {Step}", step);
-            _messageRegistration.MessageReceived -= OnWindowsSmsMessageReceived;
+            var rules = new SmsFilterRules(SmsFilterActionType.Accept);
+            rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
 
-            step = "attaching MessageReceived handler";
-            _logger.LogInformation("SMS registration diagnostic: {Step}", step);
+            _messageRegistration = SmsMessageRegistration.Register(registrationId, rules);
             _messageRegistration.MessageReceived += OnWindowsSmsMessageReceived;
 
             _logger.LogInformation(
@@ -174,17 +148,15 @@ public class SmsService : ISmsService
         {
             _logger.LogError(
                 ex,
-                "Failed to register for incoming Windows SMS messages. Step={Step}; " +
+                "Failed to register for incoming Windows SMS messages. " +
                 "ExceptionType={ExceptionType}; HResult=0x{HResult:X8}; Message={Message}",
-                step,
                 ex.GetType().FullName,
                 ex.HResult,
                 ex.Message);
 
             System.Diagnostics.Debug.WriteLine(
-                $"WinSMS SMS REGISTRATION FAILED | Step={step} | " +
-                $"Type={ex.GetType().FullName} | HResult=0x{ex.HResult:X8} | " +
-                $"Message={ex.Message}");
+                $"WinSMS SMS REGISTRATION FAILED | Type={ex.GetType().FullName} | " +
+                $"HResult=0x{ex.HResult:X8} | Message={ex.Message}");
         }
     }
 
