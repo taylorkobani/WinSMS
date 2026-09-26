@@ -48,7 +48,7 @@
 
                                 <ComboBox Grid.Column="2"
                                           Header="Color"
-                                          ItemsSource="{x:Bind ViewModel.ProfileColors, ElementName=RootPage}"
+                                          ItemsSource="{Binding DataContext.ProfileColors, ElementName=RootPage}"
                                           SelectedItem="{x:Bind Color, Mode=TwoWay}"
                                           HorizontalAlignment="Stretch">
                                     <ComboBox.ItemTemplate>
