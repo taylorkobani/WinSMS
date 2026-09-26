@@ -20,9 +20,6 @@ public partial class App : Application
         this.InitializeComponent();
         Services = ConfigureServices();
 
-        // Create the singleton SMS service at application startup so its Windows
-        // MessageReceived registration is active even before the Inbox page is opened.
-        _ = Services.GetRequiredService<ISmsService>();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
