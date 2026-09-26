@@ -10,6 +10,18 @@
                     IsBackButtonVisible="Collapsed"
                     SelectionChanged="NavView_SelectionChanged"
                     Loaded="NavView_Loaded">
+        <NavigationView.PaneHeader>
+            <Border x:Name="PhoneProfilePill"
+                    Padding="10,4"
+                    Margin="0,4,0,8"
+                    CornerRadius="12"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="PhoneProfileName"
+                           Foreground="White"
+                           FontWeight="SemiBold"/>
+            </Border>
+        </NavigationView.PaneHeader>
+
         <NavigationView.MenuItems>
             <NavigationViewItem Content="Inbox" Tag="Inbox">
                 <NavigationViewItem.Icon>
