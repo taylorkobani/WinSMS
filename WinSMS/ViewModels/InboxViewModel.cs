@@ -13,6 +13,20 @@ public partial class InboxViewModel : ObservableObject
     private readonly IMessageArchiveService _archive;
     private readonly DispatcherQueue _dispatcher;
 
+    // Compatibility aliases retained for WinUI incremental XAML compilation.
+    // The Inbox UI itself is conversation-based.
+    public ObservableCollection<SmsMessage> Messages { get; } = new();
+    public SmsMessage? SelectedMessage { get; set; }
+
+    [RelayCommand]
+    private async Task MarkAsReadAsync(SmsMessage? message)
+    {
+        if (message == null || message.IsRead) return;
+        message.IsRead = true;
+        await _archive.UpdateMessageAsync(message);
+        await RefreshAsync();
+    }
+
     [ObservableProperty]
     private ObservableCollection<SmsConversation> _conversations = new();
 
