@@ -17,21 +17,13 @@ public sealed partial class SettingsPage : Page
         this.InitializeComponent();
     }
 
-    private void ProfileColorComboBox_ContainerContentChanging(
-        ListViewBase sender,
-        ContainerContentChangingEventArgs args)
+    private void ProfileColorSwatch_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        if (args.InRecycleQueue || args.Item is not string colorValue)
+        if (sender is not Ellipse swatch ||
+            swatch.DataContext is not string colorValue)
             return;
 
-        args.RegisterUpdateCallback((_, updateArgs) =>
-        {
-            if (updateArgs.ItemContainer.ContentTemplateRoot is not StackPanel panel ||
-                panel.Children.FirstOrDefault() is not Ellipse swatch)
-                return;
-
-            swatch.Fill = new SolidColorBrush(ParseColor(colorValue));
-        });
+        swatch.Fill = new SolidColorBrush(ParseColor(colorValue));
     }
 
     private static Color ParseColor(string value)
