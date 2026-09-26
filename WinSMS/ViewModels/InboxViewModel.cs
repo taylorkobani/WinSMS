@@ -53,7 +53,6 @@ public partial class InboxViewModel : ObservableObject
         _archive = archive;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _smsService.MessageReceived += OnMessageReceived;
-        _ = RefreshAsync();
     }
 
     [RelayCommand]
