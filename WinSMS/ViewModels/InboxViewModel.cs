@@ -14,10 +14,10 @@ public partial class InboxViewModel : ObservableObject
     private readonly DispatcherQueue _dispatcher;
 
     [ObservableProperty]
-    private ObservableCollection<SmsMessage> _messages = new();
+    private ObservableCollection<SmsConversation> _conversations = new();
 
     [ObservableProperty]
-    private SmsMessage? _selectedMessage;
+    private SmsConversation? _selectedConversation;
 
     [ObservableProperty]
     private bool _isLoading;
@@ -31,6 +31,7 @@ public partial class InboxViewModel : ObservableObject
         _archive = archive;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _smsService.MessageReceived += OnMessageReceived;
+        _ = RefreshAsync();
     }
 
     [RelayCommand]
@@ -40,14 +41,18 @@ public partial class InboxViewModel : ObservableObject
         StatusMessage = null;
         try
         {
-            var messages = await _smsService.GetAllMessagesAsync();
-            Messages.Clear();
-            foreach (var m in messages.OrderByDescending(x => x.Timestamp))
-                Messages.Add(m);
+            var selectedNumber = SelectedConversation?.PhoneNumber;
+            var conversations = await _archive.LoadConversationsAsync();
+            Conversations.Clear();
+            foreach (var conversation in conversations)
+                Conversations.Add(conversation);
+            SelectedConversation = selectedNumber == null
+                ? Conversations.FirstOrDefault()
+                : Conversations.FirstOrDefault(c => c.PhoneNumber == selectedNumber) ?? Conversations.FirstOrDefault();
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed to refresh inbox: {ex.Message}";
+            StatusMessage = $"Failed to refresh conversations: {ex.Message}";
         }
         finally
         {
@@ -56,17 +61,14 @@ public partial class InboxViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task MarkAsReadAsync(SmsMessage message)
+    private async Task MarkConversationAsReadAsync(SmsConversation conversation)
     {
-        if (message.IsRead) return;
-        await _smsService.MarkAsReadAsync(message);
-        // Replace item in collection to trigger ListView refresh
-        var index = Messages.IndexOf(message);
-        if (index >= 0)
+        foreach (var message in conversation.Messages.Where(m => m.Direction == SmsDirection.Incoming && !m.IsRead))
         {
-            Messages.RemoveAt(index);
-            Messages.Insert(index, message);
+            message.IsRead = true;
+            await _archive.UpdateMessageAsync(message);
         }
+        await RefreshAsync();
     }
 
     [RelayCommand]
@@ -74,10 +76,8 @@ public partial class InboxViewModel : ObservableObject
     {
         try
         {
-            if (message.ModemMessageIndex.HasValue)
-                await _smsService.DeleteMessageAsync(message.ModemMessageIndex.Value);
             await _archive.DeleteMessageAsync(message.Id);
-            Messages.Remove(message);
+            await RefreshAsync();
         }
         catch (Exception ex)
         {
@@ -87,8 +87,8 @@ public partial class InboxViewModel : ObservableObject
 
     private void OnMessageReceived(object? sender, SmsMessage message)
     {
-        _dispatcher.TryEnqueue(() => Messages.Insert(0, message));
+        _dispatcher.TryEnqueue(async () => await RefreshAsync());
     }
 
-    public string? GetSenderNumber() => SelectedMessage?.PhoneNumber;
+    public string? GetSenderNumber() => SelectedConversation?.PhoneNumber;
 }
