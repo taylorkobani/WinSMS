@@ -34,13 +34,17 @@ public sealed partial class MainWindow : Window
         // as a colored pill in the visible app chrome.
         Title = "WinSMS";
 
-        if (string.IsNullOrWhiteSpace(profile.Name))
+        var displayName = string.IsNullOrWhiteSpace(profile.Name)
+            ? localPhoneNumber
+            : profile.Name;
+
+        if (string.IsNullOrWhiteSpace(displayName))
         {
             PhoneProfilePill.Visibility = Visibility.Collapsed;
             return;
         }
 
-        PhoneProfileName.Text = profile.Name;
+        PhoneProfileName.Text = displayName;
         PhoneProfilePill.Background = new SolidColorBrush(ParseColor(profile.Color));
         PhoneProfilePill.Visibility = Visibility.Visible;
     }
