@@ -37,7 +37,7 @@
                                     ToolTipService.ToolTip="Block number"
                                     Click="BlockConversationButton_Click"
                                     Tag="{x:Bind}">
-                                <FontIcon Glyph="&#xE711;" FontSize="12"/>
+                                <FontIcon Glyph="&#xE7BA;" FontSize="14"/>
                             </Button>
                             <Button Grid.Column="2"
                                     Width="32"
