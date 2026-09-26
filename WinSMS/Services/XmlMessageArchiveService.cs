@@ -269,6 +269,47 @@ public class XmlMessageArchiveService : IMessageArchiveService
         };
     }
 
+    public async Task DeleteConversationAsync(string phoneNumber)
+    {
+        await _fileLock.WaitAsync();
+        try
+        {
+            EnsureDirectoryExists();
+            var key = NormalizePhoneNumber(phoneNumber);
+
+            // Remove the dedicated conversation file used by the current format.
+            var conversationFile = GetConversationFilePath(phoneNumber);
+            if (File.Exists(conversationFile))
+                File.Delete(conversationFile);
+
+            // Also remove this number from any legacy daily XML files so an old
+            // message cannot recreate the conversation on the next refresh.
+            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "????-??-??.xml"))
+            {
+                var doc = XDocument.Load(file);
+                var matches = doc.Descendants("Message")
+                    .Where(e => NormalizePhoneNumber(e.Element("PhoneNumber")?.Value ?? string.Empty) == key)
+                    .ToList();
+
+                if (matches.Count == 0) continue;
+
+                foreach (var element in matches)
+                    element.Remove();
+
+                await SaveDocumentAsync(doc, file);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete conversation for {PhoneNumber}", phoneNumber);
+            throw;
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
     private static XDocument LoadOrCreateConversationDocument(string filePath, string phoneNumber)
     {
         if (File.Exists(filePath))
