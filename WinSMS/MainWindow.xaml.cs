@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private const uint NIF_INFO = 0x00000010;
     private const uint NIIF_INFO = 0x00000001;
     private const uint NIN_BALLOONUSERCLICK = WM_APP + 5;
+    private const uint NOTIFYICON_VERSION_4 = 4;
+    private const uint NIM_SETVERSION = 0x00000004;
     private const uint IMAGE_ICON = 1;
     private const uint LR_LOADFROMFILE = 0x00000010;
 
@@ -75,6 +77,9 @@ public sealed partial class MainWindow : Window
         else if (msg == WM_TRAYICON)
         {
             var mouseMessage = unchecked((uint)lParam.ToInt64());
+            // With NOTIFYICON_VERSION_4 the low word contains the notification code.
+            mouseMessage &= 0xFFFF;
+
             if (mouseMessage == NIN_BALLOONUSERCLICK)
             {
                 var phoneNumber = _notificationPhoneNumber;
@@ -126,12 +131,18 @@ public sealed partial class MainWindow : Window
 
         _notificationPhoneNumber = message.PhoneNumber;
 
+        // Shell balloons have a system-controlled timeout and appearance, so keep
+        // the app hidden but show our persistent yellow card when the window is restored.
+        // The Shell balloon remains useful for bringing the hidden app to the user's attention.
         var data = CreateNotifyIconData();
         data.uFlags = NIF_INFO;
         data.szInfoTitle = message.PhoneNumber;
         data.szInfo = Truncate(message.Body, 255);
         data.dwInfoFlags = NIIF_INFO;
         Shell_NotifyIcon(NIM_MODIFY, ref data);
+
+        SmsNotificationNumber.Text = message.PhoneNumber;
+        SmsNotificationBody.Text = message.Body;
     }
 
     private async Task RestoreConversationAsync(string? phoneNumber)
@@ -154,8 +165,30 @@ public sealed partial class MainWindow : Window
             await inboxPage.ViewModel.SelectConversationAsync(phoneNumber);
         }
 
+        SmsNotification.Visibility = Visibility.Visible;
         _notificationPhoneNumber = null;
     }
+
+    private async void SmsNotification_Click(object sender, RoutedEventArgs e)
+    {
+        var phoneNumber = SmsNotificationNumber.Text;
+        SmsNotification.Visibility = Visibility.Collapsed;
+
+        var inboxItem = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), "Inbox", StringComparison.Ordinal));
+        if (inboxItem != null)
+            NavView.SelectedItem = inboxItem;
+
+        if (ContentFrame.CurrentSourcePageType != typeof(InboxPage))
+            ContentFrame.Navigate(typeof(InboxPage));
+
+        if (ContentFrame.Content is InboxPage inboxPage)
+            await inboxPage.ViewModel.SelectConversationAsync(phoneNumber);
+    }
+
+    private void SmsNotificationDismiss_Click(object sender, RoutedEventArgs e)
+        => SmsNotification.Visibility = Visibility.Collapsed;
 
     private static string Truncate(string? value, int maxLength)
     {
@@ -179,7 +212,11 @@ public sealed partial class MainWindow : Window
         data.szTip = "WinSMS";
 
         if (Shell_NotifyIcon(NIM_ADD, ref data))
+        {
             _trayIconVisible = true;
+            data.uTimeoutOrVersion = NOTIFYICON_VERSION_4;
+            Shell_NotifyIcon(NIM_SETVERSION, ref data);
+        }
     }
 
     private void RemoveTrayIcon()
