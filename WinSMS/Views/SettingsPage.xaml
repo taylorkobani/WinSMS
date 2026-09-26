@@ -19,12 +19,11 @@
             <ComboBox x:Name="ProfileColorComboBox"
                       ItemsSource="{x:Bind ViewModel.ProfileColors}"
                       SelectedItem="{x:Bind ViewModel.ProfileColor, Mode=TwoWay}"
-                      ContainerContentChanging="ProfileColorComboBox_ContainerContentChanging"
                       HorizontalAlignment="Stretch">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="16" Height="16"/>
+                            <Ellipse Width="16" Height="16" Loaded="ProfileColorSwatch_Loaded"/>
                             <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </DataTemplate>
