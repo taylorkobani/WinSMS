@@ -79,6 +79,27 @@ public sealed partial class InboxPage : Page
             ViewModel.SendReplyCommand.Execute(null);
     }
 
+    private async void DeleteConversationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SmsConversation conversation })
+            return;
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Delete conversation?",
+            Content = $"Delete the conversation with {conversation.PhoneNumber}? This cannot be undone.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        await ViewModel.DeleteConversationAsync(conversation);
+    }
+
     private void ObserveSelectedConversation()
     {
         if (_observedConversation != null)
