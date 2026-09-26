@@ -57,21 +57,24 @@ public sealed partial class InboxPage : Page
 
     private void ReplyTextBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
-        if (e.Key != global::Windows.System.VirtualKey.Enter)
+        // Avoid a Windows.System dependency here. WinUI reports Enter as virtual-key 13.
+        if ((int)e.Key != 13)
             return;
 
-        var shiftDown =
-            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Shift)
-                .HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
+        // KeyStatus reports whether a modifier key was down when this key event occurred.
+        // Shift+Enter is deliberately left unhandled so TextBox inserts a newline.
+        var shiftDown = e.KeyStatus.IsMenuKeyDown ||
+            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread((global::Windows.System.VirtualKey)16) &
+             global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
         if (shiftDown)
             return;
 
+        // Mark Enter handled before executing so AcceptsReturn cannot consume it.
+        e.Handled = true;
+
         if (ViewModel.SendReplyCommand.CanExecute(null))
-        {
-            e.Handled = true;
             ViewModel.SendReplyCommand.Execute(null);
-        }
     }
 
     private void ObserveSelectedConversation()
