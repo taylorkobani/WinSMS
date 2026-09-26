@@ -74,7 +74,7 @@
                     <TextBox x:Name="ReplyTextBox"
                              Grid.Column="0"
                              PlaceholderText="Type a message..."
-                             KeyDown="ReplyTextBox_KeyDown"
+                             PreviewKeyDown="ReplyTextBox_PreviewKeyDown"
                              Text="{x:Bind ViewModel.ReplyBody, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
