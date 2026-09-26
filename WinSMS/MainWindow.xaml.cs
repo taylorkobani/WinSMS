@@ -15,6 +15,9 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
         phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
         UpdatePhoneProfile();
