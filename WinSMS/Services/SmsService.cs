@@ -9,6 +9,7 @@ public class SmsService : ISmsService
 {
     private readonly IMessageArchiveService _archive;
     private readonly ILogger<SmsService> _logger;
+    private readonly BlockedNumberService _blockedNumbers;
     private SmsMessageRegistration? _messageRegistration;
 
     public event EventHandler<SmsMessage>? MessageReceived;
@@ -16,10 +17,11 @@ public class SmsService : ISmsService
     public string GetCurrentPhoneNumber()
         => SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
 
-    public SmsService(IMessageArchiveService archive, ILogger<SmsService> logger)
+    public SmsService(IMessageArchiveService archive, ILogger<SmsService> logger, BlockedNumberService blockedNumbers)
     {
         _archive = archive;
         _logger = logger;
+        _blockedNumbers = blockedNumbers;
         InitializeWindowsSmsReceiving();
     }
 
@@ -175,9 +177,16 @@ public class SmsService : ISmsService
                 IsRead = false
             };
 
-            // Acknowledge promptly so Windows can continue normal delivery,
-            // including delivery to the system/operator messaging application.
+            // Acknowledge promptly so Windows can continue normal delivery.
             details.Accept();
+
+            // Blocked senders are discarded before archive storage and before
+            // MessageReceived is raised, so they never reach conversations or notifications.
+            if (_blockedNumbers.IsBlocked(message.PhoneNumber))
+            {
+                _logger.LogInformation("Discarded incoming SMS from blocked number {PhoneNumber}", message.PhoneNumber);
+                return;
+            }
 
             await _archive.SaveMessageAsync(message);
             _logger.LogInformation("Incoming SMS received from {PhoneNumber}", message.PhoneNumber);
