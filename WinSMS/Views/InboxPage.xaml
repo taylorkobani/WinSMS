@@ -28,7 +28,8 @@
                                 <TextBlock Text="{x:Bind LastMessage.Body, Mode=OneWay}" Opacity="0.7" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Text="{x:Bind LastMessage.Timestamp, Mode=OneWay}" Opacity="0.5" Style="{StaticResource CaptionTextBlockStyle}"/>
                             </StackPanel>
-                            <Button Grid.Column="1"
+                            <Button x:Name="BlockConversationButton"
+                                    Grid.Column="1"
                                     Width="32"
                                     Height="32"
                                     Padding="0"
