@@ -6,8 +6,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
-using Windows.System;
-using Windows.UI.Core;
 using WinSMS.Models;
 using WinSMS.ViewModels;
 
@@ -50,7 +48,7 @@ public sealed partial class InboxPage : Page
         if (ViewModel.SelectedConversation == null)
             return;
 
-        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             ReplyTextBox.Focus(FocusState.Programmatic);
             ReplyTextBox.SelectionStart = ReplyTextBox.Text?.Length ?? 0;
@@ -59,12 +57,12 @@ public sealed partial class InboxPage : Page
 
     private void ReplyTextBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
-        if (e.Key != VirtualKey.Enter)
+        if (e.Key != global::Windows.System.VirtualKey.Enter)
             return;
 
         var shiftDown =
-            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
-                .HasFlag(CoreVirtualKeyStates.Down);
+            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Shift)
+                .HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
 
         if (shiftDown)
             return;
@@ -186,7 +184,7 @@ public sealed partial class InboxPage : Page
 
     private void ScrollConversationToEnd()
     {
-        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             var messages = ViewModel.SelectedConversation?.Messages;
             if (messages == null || messages.Count == 0) return;
