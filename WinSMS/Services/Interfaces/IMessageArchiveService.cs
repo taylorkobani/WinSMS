@@ -11,4 +11,5 @@ public interface IMessageArchiveService
     Task UpdateMessageAsync(SmsMessage message);
     Task<IReadOnlyList<SmsConversation>> LoadConversationsAsync();
     Task<SmsConversation?> LoadConversationAsync(string phoneNumber);
+    Task DeleteConversationAsync(string phoneNumber);
 }
