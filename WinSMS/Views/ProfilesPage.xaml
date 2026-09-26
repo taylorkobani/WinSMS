@@ -44,12 +44,12 @@
                                 <TextBox Grid.Column="1"
                                          Header="Profile name"
                                          PlaceholderText="e.g. Personal, Work"
-                                         Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                         Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
                                 <ComboBox Grid.Column="2"
                                           Header="Color"
                                           ItemsSource="{Binding DataContext.ProfileColors, ElementName=RootPage}"
-                                          SelectedItem="{x:Bind Color, Mode=TwoWay}"
+                                          SelectedItem="{Binding Color, Mode=TwoWay}"
                                           HorizontalAlignment="Stretch">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate>
@@ -65,7 +65,7 @@
                                         VerticalAlignment="Bottom"
                                         Content="Save"
                                         Click="SaveProfileButton_Click"
-                                        Tag="{x:Bind}"
+                                        Tag="{Binding}"
                                         Style="{StaticResource AccentButtonStyle}"/>
                             </Grid>
                         </Border>
