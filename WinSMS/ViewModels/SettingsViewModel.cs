@@ -3,11 +3,44 @@ using CommunityToolkit.Mvvm.Input;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
 using Windows.Networking.NetworkOperators;
+using WinSMS.Services;
 
 namespace WinSMS.ViewModels;
 
 public partial class SettingsViewModel : ObservableObject
 {
+    private readonly StartupService _startupService;
+    private bool _updatingStartup;
+
+    [ObservableProperty]
+    private bool _runAtWindowsStartup;
+
+    public SettingsViewModel(StartupService startupService)
+    {
+        _startupService = startupService;
+        _runAtWindowsStartup = _startupService.IsEnabled();
+    }
+
+    partial void OnRunAtWindowsStartupChanged(bool value)
+    {
+        if (_updatingStartup) return;
+
+        try
+        {
+            _startupService.SetEnabled(value);
+            StatusMessage = value
+                ? "WinSMS will start automatically when you sign in to Windows."
+                : "WinSMS will no longer start automatically with Windows.";
+        }
+        catch (Exception ex)
+        {
+            _updatingStartup = true;
+            RunAtWindowsStartup = _startupService.IsEnabled();
+            _updatingStartup = false;
+            StatusMessage = $"Could not change Windows startup setting: {ex.Message}";
+        }
+    }
+
     [ObservableProperty]
     private string? _statusMessage;
 
