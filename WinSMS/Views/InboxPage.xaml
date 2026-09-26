@@ -29,17 +29,41 @@
                 <TextBlock Grid.Row="0" Text="{x:Bind ViewModel.SelectedConversation.PhoneNumber, Mode=OneWay}"
                            Style="{StaticResource SubtitleTextBlockStyle}"
                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
-                <ListView x:Name="ConversationMessageList" Grid.Row="1" Margin="0,8" ItemsSource="{x:Bind ViewModel.SelectedConversation.Messages, Mode=OneWay}">
+                <ListView x:Name="ConversationMessageList"
+                          Grid.Row="1"
+                          Margin="0,8"
+                          ItemsSource="{x:Bind ViewModel.SelectedConversation.Messages, Mode=OneWay}"
+                          ContainerContentChanging="ConversationMessageList_ContainerContentChanging"
+                          HorizontalContentAlignment="Stretch">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0,2"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:SmsMessage">
-                            <StackPanel Margin="4" Padding="10" MaxWidth="520">
-                                <TextBlock Text="{x:Bind Body}" TextWrapping="Wrap"/>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="{x:Bind Direction}" Opacity="0.55" Style="{StaticResource CaptionTextBlockStyle}"/>
-                                    <TextBlock Text="{x:Bind Timestamp}" Opacity="0.55" Style="{StaticResource CaptionTextBlockStyle}"/>
-                                    <TextBlock Text="{x:Bind Status}" Opacity="0.55" Style="{StaticResource CaptionTextBlockStyle}"/>
-                                </StackPanel>
-                            </StackPanel>
+                            <Grid x:Name="MessageRow" HorizontalAlignment="Stretch">
+                                <Border x:Name="MessageBubble"
+                                        Margin="8,2"
+                                        Padding="12,8"
+                                        MaxWidth="520"
+                                        CornerRadius="16">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{x:Bind Body}" TextWrapping="Wrap"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Bind Timestamp}"
+                                                       Opacity="0.6"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"/>
+                                            <TextBlock x:Name="MessageStatus"
+                                                       Text="{x:Bind Status}"
+                                                       Opacity="0.6"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
