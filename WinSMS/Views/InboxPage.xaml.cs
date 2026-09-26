@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -69,6 +70,8 @@ public sealed partial class InboxPage : Page
                 return;
 
             var bubble = FindDescendant<Border>(row, "MessageBubble");
+            var body = FindDescendant<TextBlock>(row, "MessageBody");
+            var timestamp = FindDescendant<TextBlock>(row, "MessageTimestamp");
             var status = FindDescendant<TextBlock>(row, "MessageStatus");
             if (bubble == null) return;
 
@@ -82,8 +85,16 @@ public sealed partial class InboxPage : Page
                 ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
                 : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
 
+            var outgoingForeground = new SolidColorBrush(Colors.White);
+            if (body != null)
+                body.Foreground = outgoing ? outgoingForeground : null;
+            if (timestamp != null)
+                timestamp.Foreground = outgoing ? outgoingForeground : null;
             if (status != null)
+            {
                 status.Visibility = outgoing ? Visibility.Visible : Visibility.Collapsed;
+                status.Foreground = outgoing ? outgoingForeground : null;
+            }
 
             AnimateMessageBubble(bubble);
         });
