@@ -19,7 +19,11 @@ public partial class ProfilesViewModel : ObservableObject
 
     public ObservableCollection<PhoneProfileItem> Profiles { get; } = new();
 
-    [ObservableProperty]
+    public string? StatusMessage
+    {
+        get => _statusMessage;
+        set => SetProperty(ref _statusMessage, value);
+    }
     private string? _statusMessage;
 
     public ProfilesViewModel(ISmsService smsService, PhoneProfileService phoneProfiles)
@@ -86,10 +90,18 @@ public partial class PhoneProfileItem : ObservableObject
 {
     public string PhoneNumber { get; set; } = string.Empty;
 
-    [ObservableProperty]
+    public string Name
+    {
+        get => _name;
+        set => SetProperty(ref _name, value);
+    }
     private string _name = string.Empty;
 
-    [ObservableProperty]
+    public string Color
+    {
+        get => _color;
+        set => SetProperty(ref _color, value);
+    }
     private string _color = "#0078D4";
 
     public bool IsCurrent { get; set; }
