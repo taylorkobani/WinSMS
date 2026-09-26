@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
+using System.Diagnostics;
 using Microsoft.UI.Xaml.Controls;
 using WinSMS.ViewModels;
 
@@ -12,5 +14,20 @@ public sealed partial class SettingsPage : Page
     {
         ViewModel = App.Services.GetRequiredService<SettingsViewModel>();
         InitializeComponent();
+    }
+
+    private void OpenDataFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "WinSMS");
+
+        Directory.CreateDirectory(dataFolder);
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = dataFolder,
+            UseShellExecute = true
+        });
     }
 }
