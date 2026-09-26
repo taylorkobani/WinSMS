@@ -71,8 +71,10 @@
                 <Grid Grid.Row="2" ColumnSpacing="8"
                       Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0"
+                    <TextBox x:Name="ReplyTextBox"
+                             Grid.Column="0"
                              PlaceholderText="Type a message..."
+                             KeyDown="ReplyTextBox_KeyDown"
                              Text="{x:Bind ViewModel.ReplyBody, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
