@@ -33,8 +33,8 @@
                                     Padding="0"
                                     VerticalAlignment="Center"
                                     ToolTipService.ToolTip="Delete conversation"
-                                    Command="{Binding ViewModel.DeleteConversationCommand, ElementName=RootPage}"
-                                    CommandParameter="{x:Bind}">
+                                    Click="DeleteConversationButton_Click"
+                                    Tag="{x:Bind}">
                                 <FontIcon Glyph="&#xE711;" Foreground="Red" FontSize="12"/>
                             </Button>
                         </Grid>
