@@ -1,4 +1,6 @@
 using System.Xml.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
@@ -27,8 +29,8 @@ public class XmlMessageArchiveService : IMessageArchiveService
         try
         {
             EnsureDirectoryExists();
-            var filePath = GetFilePath(DateOnly.FromDateTime(message.Timestamp.LocalDateTime));
-            var doc = LoadOrCreateDocument(filePath, message.Timestamp);
+            var filePath = GetConversationFilePath(message.PhoneNumber);
+            var doc = LoadOrCreateConversationDocument(filePath, message.PhoneNumber);
 
             var root = doc.Root!;
             root.Add(MessageToXml(message));
@@ -50,12 +52,15 @@ public class XmlMessageArchiveService : IMessageArchiveService
         await _fileLock.WaitAsync();
         try
         {
-            var filePath = GetFilePath(date);
-            if (!File.Exists(filePath))
-                return Array.Empty<SmsMessage>();
-
-            var doc = XDocument.Load(filePath);
-            return ParseMessages(doc);
+            EnsureDirectoryExists();
+            var all = new List<SmsMessage>();
+            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
+            {
+                try { all.AddRange(ParseMessages(XDocument.Load(file))); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to read archive file {File}", file); }
+            }
+            return all.Where(m => DateOnly.FromDateTime(m.Timestamp.LocalDateTime) == date)
+                      .OrderBy(m => m.Timestamp).ToList();
         }
         catch (Exception ex)
         {
@@ -75,7 +80,7 @@ public class XmlMessageArchiveService : IMessageArchiveService
         {
             EnsureDirectoryExists();
             var all = new List<SmsMessage>();
-            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "????-??-??.xml"))
+            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
             {
                 try
                 {
@@ -136,14 +141,22 @@ public class XmlMessageArchiveService : IMessageArchiveService
         bool released = false;
         try
         {
-            var filePath = GetFilePath(DateOnly.FromDateTime(message.Timestamp.LocalDateTime));
+            var filePath = GetConversationFilePath(message.PhoneNumber);
             if (!File.Exists(filePath))
             {
-                // Release lock before calling SaveMessageAsync which acquires it
-                _fileLock.Release();
-                released = true;
-                await SaveMessageAsync(message);
-                return;
+                // During migration the message may still live in a legacy daily archive.
+                var legacyFile = Directory.EnumerateFiles(_archiveDirectory, "????-??-??.xml")
+                    .FirstOrDefault(f => XDocument.Load(f).Descendants("Message")
+                        .Any(e => e.Element("Id")?.Value == message.Id.ToString()));
+                if (legacyFile != null)
+                    filePath = legacyFile;
+                else
+                {
+                    _fileLock.Release();
+                    released = true;
+                    await SaveMessageAsync(message);
+                    return;
+                }
             }
 
             var doc = XDocument.Load(filePath);
@@ -224,14 +237,60 @@ public class XmlMessageArchiveService : IMessageArchiveService
         }
     }
 
-    private static XDocument LoadOrCreateDocument(string filePath, DateTimeOffset date)
+    public async Task<IReadOnlyList<SmsConversation>> LoadConversationsAsync()
+    {
+        var all = await LoadAllMessagesAsync();
+        return all.GroupBy(m => NormalizePhoneNumber(m.PhoneNumber), StringComparer.OrdinalIgnoreCase)
+            .Select(g => new SmsConversation
+            {
+                PhoneNumber = g.OrderByDescending(m => m.Timestamp).First().PhoneNumber,
+                Messages = g.OrderBy(m => m.Timestamp).ToList()
+            })
+            .OrderByDescending(c => c.LastMessageTimestamp)
+            .ToList();
+    }
+
+    public async Task<SmsConversation?> LoadConversationAsync(string phoneNumber)
+    {
+        var key = NormalizePhoneNumber(phoneNumber);
+        var all = await LoadAllMessagesAsync();
+        var messages = all.Where(m => NormalizePhoneNumber(m.PhoneNumber) == key)
+                          .OrderBy(m => m.Timestamp).ToList();
+        return messages.Count == 0 ? null : new SmsConversation
+        {
+            PhoneNumber = messages[^1].PhoneNumber,
+            Messages = messages
+        };
+    }
+
+    private static XDocument LoadOrCreateConversationDocument(string filePath, string phoneNumber)
     {
         if (File.Exists(filePath))
         {
             try { return XDocument.Load(filePath); }
             catch { }
         }
-        return new XDocument(new XElement("Messages", new XAttribute("date", DateOnly.FromDateTime(date.LocalDateTime).ToString("yyyy-MM-dd"))));
+        return new XDocument(new XElement("Conversation",
+            new XAttribute("phoneNumber", phoneNumber),
+            new XAttribute("key", NormalizePhoneNumber(phoneNumber))));
+    }
+
+    private string GetConversationFilePath(string phoneNumber)
+    {
+        var key = NormalizePhoneNumber(phoneNumber);
+        var safe = new string(key.Where(char.IsDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(safe))
+            safe = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(phoneNumber)))[..16];
+        return Path.Combine(_archiveDirectory, $"conversation-{safe}.xml");
+    }
+
+    private static string NormalizePhoneNumber(string phoneNumber)
+    {
+        var trimmed = phoneNumber?.Trim() ?? string.Empty;
+        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("00")) digits = digits[2..];
+        if (digits.StartsWith("0") && digits.Length >= 10) digits = "44" + digits[1..];
+        return digits;
     }
 
     private static async Task SaveDocumentAsync(XDocument doc, string filePath)
