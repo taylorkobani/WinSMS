@@ -51,9 +51,10 @@
                                         MaxWidth="520"
                                         CornerRadius="16">
                                     <StackPanel Spacing="4">
-                                        <TextBlock Text="{x:Bind Body}" TextWrapping="Wrap"/>
+                                        <TextBlock x:Name="MessageBody" Text="{x:Bind Body}" TextWrapping="Wrap"/>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{x:Bind Timestamp}"
+                                            <TextBlock x:Name="MessageTimestamp"
+                                                       Text="{x:Bind Timestamp}"
                                                        Opacity="0.6"
                                                        Style="{StaticResource CaptionTextBlockStyle}"/>
                                             <TextBlock x:Name="MessageStatus"
