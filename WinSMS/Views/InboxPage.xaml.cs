@@ -63,9 +63,11 @@ public sealed partial class InboxPage : Page
 
         // KeyStatus reports whether a modifier key was down when this key event occurred.
         // Shift+Enter is deliberately left unhandled so TextBox inserts a newline.
-        var shiftDown = e.KeyStatus.IsMenuKeyDown ||
-            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread((global::Windows.System.VirtualKey)16) &
-             global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        var shiftState =
+            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+                global::Windows.System.VirtualKey.Shift);
+        var shiftDown =
+            (shiftState & global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
         if (shiftDown)
             return;
