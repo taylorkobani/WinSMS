@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
+using WinSMS.Services;
 
 namespace WinSMS.ViewModels;
 
@@ -12,6 +13,7 @@ public partial class InboxViewModel : ObservableObject
     private readonly ISmsService _smsService;
     private readonly IMessageArchiveService _archive;
     private readonly DispatcherQueue _dispatcher;
+    private readonly BlockedNumberService _blockedNumbers;
 
     // Compatibility aliases retained for WinUI incremental XAML compilation.
     // The Inbox UI itself is conversation-based.
@@ -47,10 +49,11 @@ public partial class InboxViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SendReplyCommand))]
     private bool _isSending;
 
-    public InboxViewModel(ISmsService smsService, IMessageArchiveService archive)
+    public InboxViewModel(ISmsService smsService, IMessageArchiveService archive, BlockedNumberService blockedNumbers)
     {
         _smsService = smsService;
         _archive = archive;
+        _blockedNumbers = blockedNumbers;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _smsService.MessageReceived += OnMessageReceived;
     }
@@ -159,6 +162,19 @@ public partial class InboxViewModel : ObservableObject
             await _archive.UpdateMessageAsync(message);
         }
         await RefreshAsync();
+    }
+
+    public bool IsBlocked(SmsConversation conversation)
+        => _blockedNumbers.IsBlocked(conversation.PhoneNumber);
+
+    public async Task<bool> ToggleBlockedAsync(SmsConversation? conversation)
+    {
+        if (conversation == null) return false;
+        var blocked = await _blockedNumbers.ToggleAsync(conversation.PhoneNumber);
+        StatusMessage = blocked
+            ? $"{conversation.PhoneNumber} blocked. Future messages will be discarded."
+            : $"{conversation.PhoneNumber} unblocked.";
+        return blocked;
     }
 
     [RelayCommand]
