@@ -8,6 +8,32 @@
         <StackPanel MaxWidth="600" Spacing="16">
             <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8"/>
 
+            <TextBlock Text="Phone profile" Style="{StaticResource SubtitleTextBlockStyle}"/>
+            <TextBlock Text="{x:Bind ViewModel.CurrentPhoneNumber, Mode=OneWay}"
+                       Opacity="0.7"/>
+            <TextBox Header="Profile name"
+                     PlaceholderText="e.g. Personal, Work"
+                     Text="{x:Bind ViewModel.ProfileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <TextBlock Text="Profile color"/>
+            <ComboBox ItemsSource="{x:Bind ViewModel.ProfileColors}"
+                      SelectedItem="{x:Bind ViewModel.ProfileColor, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Width="18" Height="18" CornerRadius="9"
+                                    Background="{Binding Converter={StaticResource StringToBrushConverter}}"/>
+                            <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Content="Save Profile"
+                    Command="{x:Bind ViewModel.SaveProfileCommand}"
+                    Style="{StaticResource AccentButtonStyle}"
+                    HorizontalAlignment="Left"/>
+
             <TextBlock Text="Windows SMS" Style="{StaticResource SubtitleTextBlockStyle}"/>
             <TextBlock Text="Check the Windows mobile broadband SMS device used by WinSMS."
                        TextWrapping="Wrap"/>
