@@ -20,6 +20,19 @@ public sealed class PhoneProfileService
         return profiles.TryGetValue(key, out var profile) ? profile : new PhoneProfile();
     }
 
+    public IReadOnlyList<PhoneProfile> GetProfiles()
+    {
+        return Load()
+            .Select(pair => new PhoneProfile
+            {
+                PhoneNumber = pair.Key,
+                Name = pair.Value.Name,
+                Color = pair.Value.Color
+            })
+            .OrderBy(profile => profile.PhoneNumber)
+            .ToList();
+    }
+
     public async Task SaveProfileAsync(string phoneNumber, string name, string color)
     {
         var key = NormalizePhoneNumber(phoneNumber);
@@ -29,6 +42,7 @@ public sealed class PhoneProfileService
         var profiles = Load();
         profiles[key] = new PhoneProfile
         {
+            PhoneNumber = key,
             Name = name?.Trim() ?? string.Empty,
             Color = string.IsNullOrWhiteSpace(color) ? "#0078D4" : color
         };
@@ -68,6 +82,7 @@ public sealed class PhoneProfileService
 
 public sealed class PhoneProfile
 {
+    public string PhoneNumber { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Color { get; set; } = "#0078D4";
 }
