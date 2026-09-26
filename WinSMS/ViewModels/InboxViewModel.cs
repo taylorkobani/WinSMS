@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
 
@@ -10,6 +11,7 @@ public partial class InboxViewModel : ObservableObject
 {
     private readonly ISmsService _smsService;
     private readonly IMessageArchiveService _archive;
+    private readonly DispatcherQueue _dispatcher;
 
     [ObservableProperty]
     private ObservableCollection<SmsMessage> _messages = new();
@@ -27,6 +29,7 @@ public partial class InboxViewModel : ObservableObject
     {
         _smsService = smsService;
         _archive = archive;
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
         _smsService.MessageReceived += OnMessageReceived;
     }
 
@@ -84,7 +87,7 @@ public partial class InboxViewModel : ObservableObject
 
     private void OnMessageReceived(object? sender, SmsMessage message)
     {
-        Messages.Insert(0, message);
+        _dispatcher.TryEnqueue(() => Messages.Insert(0, message));
     }
 
     public string? GetSenderNumber() => SelectedMessage?.PhoneNumber;
