@@ -13,6 +13,9 @@ public class SmsService : ISmsService
 
     public event EventHandler<SmsMessage>? MessageReceived;
 
+    public string GetCurrentPhoneNumber()
+        => SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
+
     public SmsService(IMessageArchiveService archive, ILogger<SmsService> logger)
     {
         _archive = archive;
@@ -40,10 +43,17 @@ public class SmsService : ISmsService
 
     public async Task<SmsMessage> SendMessageAsync(string phoneNumber, string body, CancellationToken cancellationToken = default)
     {
+        var device = SmsDevice2.GetDefault()
+            ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
+
         var message = new SmsMessage
         {
-            PhoneNumber = phoneNumber, Body = body, Direction = SmsDirection.Outgoing,
-            Status = SmsStatus.Pending, Timestamp = DateTimeOffset.Now
+            PhoneNumber = phoneNumber,
+            LocalPhoneNumber = device.AccountPhoneNumber?.Trim() ?? string.Empty,
+            Body = body,
+            Direction = SmsDirection.Outgoing,
+            Status = SmsStatus.Pending,
+            Timestamp = DateTimeOffset.Now
         };
         await _archive.SaveMessageAsync(message);
         try
@@ -51,9 +61,6 @@ public class SmsService : ISmsService
             message.Status = SmsStatus.Sending;
             await _archive.UpdateMessageAsync(message);
             cancellationToken.ThrowIfCancellationRequested();
-
-            var device = SmsDevice2.GetDefault()
-                ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
 
             if (device.DeviceStatus != SmsDeviceStatus.Ready)
                 throw new InvalidOperationException($"Windows SMS device is not ready. Status: {device.DeviceStatus}.");
@@ -153,9 +160,14 @@ public class SmsService : ISmsService
             }
 
             var text = details.TextMessage;
+            var localPhoneNumber = text.To?.Trim();
+            if (string.IsNullOrWhiteSpace(localPhoneNumber))
+                localPhoneNumber = GetCurrentPhoneNumber();
+
             var message = new SmsMessage
             {
                 PhoneNumber = text.From ?? string.Empty,
+                LocalPhoneNumber = localPhoneNumber ?? string.Empty,
                 Body = text.Body ?? string.Empty,
                 Timestamp = text.Timestamp,
                 Direction = SmsDirection.Incoming,
