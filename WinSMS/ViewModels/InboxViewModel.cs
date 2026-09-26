@@ -65,7 +65,16 @@ public partial class InboxViewModel : ObservableObject
         try
         {
             var selectedNumber = SelectedConversation?.PhoneNumber;
-            var conversations = await _archive.LoadConversationsAsync();
+            var localPhoneNumber = _smsService.GetCurrentPhoneNumber();
+            if (string.IsNullOrWhiteSpace(localPhoneNumber))
+            {
+                StatusMessage = "Windows did not provide a phone number for the current SMS account.";
+                Conversations.Clear();
+                SelectedConversation = null;
+                return;
+            }
+
+            var conversations = await _archive.LoadConversationsAsync(localPhoneNumber);
             Conversations.Clear();
             foreach (var conversation in conversations)
                 Conversations.Add(conversation);
@@ -143,7 +152,7 @@ public partial class InboxViewModel : ObservableObject
         try
         {
             var number = conversation.PhoneNumber;
-            await _archive.DeleteConversationAsync(number);
+            await _archive.DeleteConversationAsync(conversation.LocalPhoneNumber, number);
             ReplyBody = string.Empty;
             SelectedConversation = null;
             await RefreshAsync();
@@ -173,13 +182,22 @@ public partial class InboxViewModel : ObservableObject
     {
         _dispatcher.TryEnqueue(() =>
         {
+            var currentLocalKey = NormalizePhoneNumber(_smsService.GetCurrentPhoneNumber());
+            if (string.IsNullOrWhiteSpace(currentLocalKey) ||
+                NormalizePhoneNumber(message.LocalPhoneNumber) != currentLocalKey)
+                return;
+
             var key = NormalizePhoneNumber(message.PhoneNumber);
             var conversation = Conversations.FirstOrDefault(
                 c => NormalizePhoneNumber(c.PhoneNumber) == key);
 
             if (conversation == null)
             {
-                conversation = new SmsConversation { PhoneNumber = message.PhoneNumber };
+                conversation = new SmsConversation
+                {
+                    PhoneNumber = message.PhoneNumber,
+                    LocalPhoneNumber = message.LocalPhoneNumber
+                };
                 conversation.Messages.Add(message);
                 Conversations.Insert(0, conversation);
 
