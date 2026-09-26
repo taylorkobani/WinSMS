@@ -44,6 +44,7 @@ public partial class App : Application
         services.AddTransient<InboxViewModel>();
         services.AddTransient<ComposeViewModel>();
         services.AddTransient<SettingsViewModel>();
+        services.AddTransient<ProfilesViewModel>();
 
         // Logging
         services.AddLogging(builder =>
