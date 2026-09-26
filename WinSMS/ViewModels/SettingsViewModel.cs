@@ -3,11 +3,59 @@ using CommunityToolkit.Mvvm.Input;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
 using Windows.Networking.NetworkOperators;
+using WinSMS.Services;
+using WinSMS.Services.Interfaces;
 
 namespace WinSMS.ViewModels;
 
 public partial class SettingsViewModel : ObservableObject
 {
+    private readonly ISmsService _smsService;
+    private readonly PhoneProfileService _phoneProfiles;
+
+    public IReadOnlyList<string> ProfileColors { get; } = new[]
+    {
+        "#0078D4", "#107C10", "#E81123", "#FF8C00", "#744DA9", "#008272", "#E3008C", "#5D5A58"
+    };
+
+    [ObservableProperty]
+    private string _currentPhoneNumber = string.Empty;
+
+    [ObservableProperty]
+    private string _profileName = string.Empty;
+
+    [ObservableProperty]
+    private string _profileColor = "#0078D4";
+
+    public SettingsViewModel(ISmsService smsService, PhoneProfileService phoneProfiles)
+    {
+        _smsService = smsService;
+        _phoneProfiles = phoneProfiles;
+        LoadCurrentProfile();
+    }
+
+    public void LoadCurrentProfile()
+    {
+        CurrentPhoneNumber = _smsService.GetCurrentPhoneNumber();
+        var profile = _phoneProfiles.GetProfile(CurrentPhoneNumber);
+        ProfileName = profile.Name;
+        ProfileColor = profile.Color;
+    }
+
+    [RelayCommand]
+    private async Task SaveProfileAsync()
+    {
+        try
+        {
+            await _phoneProfiles.SaveProfileAsync(CurrentPhoneNumber, ProfileName, ProfileColor);
+            StatusMessage = "Phone profile saved.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to save phone profile: {ex.Message}";
+        }
+    }
+
     [ObservableProperty]
     private string? _statusMessage;
 
