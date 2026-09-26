@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Extensions.DependencyInjection;
+using WinSMS.Services.Interfaces;
 using WinSMS.Views;
 
 namespace WinSMS;
@@ -9,6 +11,16 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        UpdateWindowTitle();
+    }
+
+    private void UpdateWindowTitle()
+    {
+        var smsService = App.Services.GetRequiredService<ISmsService>();
+        var localPhoneNumber = smsService.GetCurrentPhoneNumber();
+        Title = string.IsNullOrWhiteSpace(localPhoneNumber)
+            ? "WinSMS"
+            : $"WinSMS - {localPhoneNumber}";
     }
 
     private void NavView_Loaded(object sender, RoutedEventArgs e)
