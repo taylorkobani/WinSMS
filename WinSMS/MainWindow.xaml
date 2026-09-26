@@ -36,11 +36,12 @@
                         Grid.Row="1"
                         IsSettingsVisible="True"
                         PaneDisplayMode="Left"
+                        IsPaneOpen="False"
                         IsBackButtonVisible="Collapsed"
                         SelectionChanged="NavView_SelectionChanged"
                         Loaded="NavView_Loaded">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Inbox" Tag="Inbox">
+                <NavigationViewItem Content="Conversations" Tag="Inbox">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE715;"/>
                     </NavigationViewItem.Icon>
