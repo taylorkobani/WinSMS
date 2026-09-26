@@ -16,16 +16,32 @@
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:SmsConversation">
-                        <StackPanel Padding="4" Spacing="2">
-                            <TextBlock Text="{x:Bind PhoneNumber}" FontWeight="SemiBold"/>
-                            <TextBlock Text="{x:Bind LastMessage.Body, Mode=OneWay}" Opacity="0.7" MaxLines="1" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{x:Bind LastMessage.Timestamp, Mode=OneWay}" Opacity="0.5" Style="{StaticResource CaptionTextBlockStyle}"/>
-                        </StackPanel>
+                        <Grid Padding="4" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="{x:Bind PhoneNumber}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{x:Bind LastMessage.Body, Mode=OneWay}" Opacity="0.7" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{x:Bind LastMessage.Timestamp, Mode=OneWay}" Opacity="0.5" Style="{StaticResource CaptionTextBlockStyle}"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    VerticalAlignment="Center"
+                                    ToolTipService.ToolTip="Delete conversation"
+                                    Command="{x:Bind ViewModel.DeleteConversationCommand}"
+                                    CommandParameter="{x:Bind}">
+                                <FontIcon Glyph="&#xE711;" Foreground="Red" FontSize="12"/>
+                            </Button>
+                        </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
             <Grid Grid.Column="1" Padding="16">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="{x:Bind ViewModel.SelectedConversation.PhoneNumber, Mode=OneWay}"
                            Style="{StaticResource SubtitleTextBlockStyle}"
                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
@@ -90,17 +106,6 @@
                         </StackPanel>
                     </Button>
                 </Grid>
-                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
-                    <Button Content="Mark Conversation as Read"
-                            Command="{x:Bind ViewModel.MarkConversationAsReadCommand}"
-                            CommandParameter="{x:Bind ViewModel.SelectedConversation, Mode=OneWay}"
-                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
-                    <Button Content="Delete Conversation"
-                            Command="{x:Bind ViewModel.DeleteConversationCommand}"
-                            CommandParameter="{x:Bind ViewModel.SelectedConversation, Mode=OneWay}"
-                            Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
-                    <ProgressRing IsActive="{x:Bind ViewModel.IsSending, Mode=OneWay}" Width="20" Height="20"/>
-                </StackPanel>
             </Grid>
         </Grid>
         <ProgressBar Grid.Row="2" IsIndeterminate="True" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"/>
