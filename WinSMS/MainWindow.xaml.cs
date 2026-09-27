@@ -56,7 +56,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
+        SetTitleBar(TitleBarDragRegion);
 
         _smsNotificationWindow = new SmsNotificationWindow();
         _smsNotificationWindow.NotificationClicked += async (_, phoneNumber) =>
