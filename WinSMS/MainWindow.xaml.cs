@@ -231,14 +231,21 @@ public sealed partial class MainWindow : Window
         return LoadIcon(IntPtr.Zero, new IntPtr(32512));
     }
 
-    private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_closeConfirmed)
             return;
 
-        // AppWindow.Closing is cancellable, so keep the app alive while the
-        // confirmation dialog is shown. Guard against repeated close clicks.
+        // The title-bar Close button behaves like Minimize: keep WinSMS
+        // running in the notification area instead of terminating it.
         args.Cancel = true;
+        MinimizeToTray();
+    }
+
+    private async void ExitNavigationItem_Tapped(
+        object sender,
+        Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
         if (_closeDialogOpen)
             return;
 
@@ -249,7 +256,7 @@ public sealed partial class MainWindow : Window
             {
                 XamlRoot = Content.XamlRoot,
                 Title = "Exit WinSMS?",
-                Content = "Are you sure you want to close WinSMS?",
+                Content = "Are you sure you want to exit WinSMS?",
                 PrimaryButtonText = "Exit",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Close
