@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
+using WinSMS.Helpers;
+using WinSMS.Models;
 using WinSMS.Services;
 using WinSMS.Services.Interfaces;
 
@@ -21,26 +23,26 @@ public partial class ProfilesViewModel : ObservableObject
 
     public ObservableCollection<PhoneProfileItem> Profiles { get; } = new();
 
-    public string? StatusMessage
-    {
-        get => _statusMessage;
-        set => SetProperty(ref _statusMessage, value);
-    }
+    [ObservableProperty]
     private string? _statusMessage;
 
-    public ProfilesViewModel(ISmsService smsService, PhoneProfileService phoneProfiles)
+    public ProfilesViewModel(
+        ISmsService smsService,
+        PhoneProfileService phoneProfiles)
     {
         _smsService = smsService;
         _phoneProfiles = phoneProfiles;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
 
-        _smsService.CurrentPhoneNumberChanged += OnCurrentPhoneNumberChanged;
+        _smsService.CurrentSubscriptionChanged += OnCurrentSubscriptionChanged;
         _phoneProfiles.ProfilesChanged += OnProfilesChanged;
 
         Load();
     }
 
-    private void OnCurrentPhoneNumberChanged(object? sender, string phoneNumber)
+    private void OnCurrentSubscriptionChanged(
+        object? sender,
+        CellularSubscription subscription)
         => _dispatcher.TryEnqueue(Load);
 
     private void OnProfilesChanged(object? sender, EventArgs e)
@@ -48,28 +50,25 @@ public partial class ProfilesViewModel : ObservableObject
 
     public void Load()
     {
-        var current = NormalizePhoneNumber(_smsService.GetCurrentPhoneNumber());
+        var currentIccId =
+            NormalizeIccId(_smsService.GetCurrentSubscription()?.IccId ?? string.Empty);
+
         Profiles.Clear();
 
         foreach (var profile in _phoneProfiles.GetProfiles())
+        {
             Profiles.Add(new PhoneProfileItem
             {
+                IccId = profile.IccId,
+                SubscriberId = profile.SubscriberId,
                 PhoneNumber = profile.PhoneNumber,
+                PhoneNumberIsReadOnly = profile.IsPhoneNumberFromWindows,
                 Name = profile.Name,
                 Color = profile.Color,
-                IsCurrent = NormalizePhoneNumber(profile.PhoneNumber) == current
-            });
-
-        if (!string.IsNullOrWhiteSpace(current) &&
-            !Profiles.Any(p => NormalizePhoneNumber(p.PhoneNumber) == current))
-        {
-            var profile = _phoneProfiles.GetProfile(current);
-            Profiles.Insert(0, new PhoneProfileItem
-            {
-                PhoneNumber = current,
-                Name = profile.Name,
-                Color = profile.Color,
-                IsCurrent = true
+                IsEsim = profile.IsEsim,
+                WindowsProfileName = profile.WindowsProfileName,
+                IsCurrent =
+                    NormalizeIccId(profile.IccId) == currentIccId
             });
         }
     }
@@ -77,45 +76,81 @@ public partial class ProfilesViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveProfileAsync(PhoneProfileItem? profile)
     {
-        if (profile is null) return;
+        if (profile is null)
+            return;
+
+        if (!profile.PhoneNumberIsReadOnly &&
+            !string.IsNullOrWhiteSpace(profile.PhoneNumber) &&
+            !PhoneNumberHelper.IsValidPhoneNumber(profile.PhoneNumber))
+        {
+            StatusMessage =
+                "Enter a valid phone number or leave the phone number blank.";
+            return;
+        }
 
         try
         {
-            await _phoneProfiles.SaveProfileAsync(profile.PhoneNumber, profile.Name, profile.Color);
-            StatusMessage = $"Profile for {profile.PhoneNumber} saved.";
+            await _phoneProfiles.SaveProfileAsync(
+                profile.IccId,
+                profile.Name,
+                profile.Color,
+                profile.PhoneNumber);
+
+            StatusMessage =
+                $"{profile.SimTypeLabel} profile saved.";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed to save profile: {ex.Message}";
+            StatusMessage =
+                $"Failed to save profile: {ex.Message}";
         }
     }
 
-    private static string NormalizePhoneNumber(string phoneNumber)
-    {
-        var digits = new string((phoneNumber ?? string.Empty).Where(char.IsDigit).ToArray());
-        if (digits.StartsWith("00")) digits = digits[2..];
-        if (digits.StartsWith("0") && digits.Length >= 10) digits = "44" + digits[1..];
-        return digits;
-    }
+    private static string NormalizeIccId(string value)
+        => new string((value ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
 }
 
 public partial class PhoneProfileItem : ObservableObject
 {
-    public string PhoneNumber { get; set; } = string.Empty;
+    public string IccId { get; set; } = string.Empty;
+    public string SubscriberId { get; set; } = string.Empty;
 
-    public string Name
-    {
-        get => _name;
-        set => SetProperty(ref _name, value);
-    }
+    [ObservableProperty]
+    private string _phoneNumber = string.Empty;
+
+    public bool PhoneNumberIsReadOnly { get; set; }
+
+    [ObservableProperty]
     private string _name = string.Empty;
 
-    public string Color
-    {
-        get => _color;
-        set => SetProperty(ref _color, value);
-    }
+    [ObservableProperty]
     private string _color = "#0078D4";
 
+    public bool? IsEsim { get; set; }
+    public string WindowsProfileName { get; set; } = string.Empty;
     public bool IsCurrent { get; set; }
+
+    public string SimTypeLabel => IsEsim switch
+    {
+        true => "eSIM",
+        false => "SIM",
+        _ => "SIM / eSIM"
+    };
+
+    public string PhoneNumberSourceText => PhoneNumberIsReadOnly
+        ? "Reported by Windows — read only"
+        : "Not reported by Windows — you can enter it manually";
+
+    public string WindowsProfileDisplay =>
+        string.IsNullOrWhiteSpace(WindowsProfileName)
+            ? "(not reported)"
+            : WindowsProfileName;
+
+    public string SubscriberIdDisplay =>
+        string.IsNullOrWhiteSpace(SubscriberId)
+            ? "(not reported)"
+            : SubscriberId;
 }
