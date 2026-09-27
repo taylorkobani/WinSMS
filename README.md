@@ -18,12 +18,13 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Number blocking** discards future incoming messages from blocked numbers before WinSMS archives or displays them.
 - **SIM/eSIM profiles** are keyed by ICCID and can store a WinSMS name, colour, Windows connection-profile name, SIM type, and optional phone number.
 - **ICCID-based SIM/eSIM detection** reads fresh Windows Mobile Broadband subscriber identity and treats phone number as optional metadata, avoiding stale `SmsDevice2.AccountPhoneNumber` values after a SIM/eSIM switch.
-- **Title-bar SIM/eSIM switcher** lets supported dual-SIM single-active Windows devices remap the active modem slot directly from the current-profile pill, with ICCID verification before WinSMS changes profile context.
-- **System tray support** keeps WinSMS running when the main window is minimized.
+- **Title-bar SIM/eSIM switcher** lets supported dual-SIM single-active Windows devices remap the active modem slot directly from the current-profile pill. The active item is checked, and WinSMS verifies the resulting ICCID before changing profile context.
+- **Protected switching workflow** shows a full-window `Switching...` overlay while Windows changes the active SIM/eSIM, preventing navigation, sending, profile editing, or other interaction until the operation completes.
+- **System tray support** keeps WinSMS running when the main window is minimized **or closed with the title-bar X button**.
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
-- **Exit confirmation** prevents accidental application shutdown.
+- **Dedicated Exit command** appears above Settings and asks for confirmation before actually terminating WinSMS.
 - **Run at Windows sign-in** can be enabled or disabled from Settings.
-- **SMS diagnostics** inspect Windows SMS devices, readiness, cellular class, account number, parent device ID, and SMSC information using the Windows SMS API.
+- **SMS and subscription diagnostics** inspect the Windows SMS device, MBN subscriber ICCID/IMSI, SIM/eSIM slot state and mapping, connection-profile metadata, telephone-number availability, and the effective WinSMS subscription identity.
 - **Open Data Folder** provides direct access to WinSMS local application data.
 
 ## Requirements
@@ -38,7 +39,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 | Mobile service | Active SIM/eSIM and carrier service capable of SMS |
 | Architectures | x86, x64, ARM64 |
 
-The application runs with the current user's privileges and does not request elevation.
+The application normally runs with the current user's privileges. On systems where Windows rejects a SIM/eSIM slot-mapping change at normal privilege, WinSMS may request UAC elevation for that one Windows `netsh mbn set slotmapping` operation; the application itself remains unelevated.
 
 ## Getting started
 
@@ -105,15 +106,25 @@ When Windows reports the phone number for the current ICCID, WinSMS overwrites t
 
 The current profile is reflected in the application title area. ICCID remains the identity key regardless of whether a phone number is available.
 
-Click the current-profile pill to open the SIM/eSIM selector. The active subscription is checked. Selecting the other type asks Windows Mobile Broadband to change the modem slot mapping, then WinSMS waits for the active ICCID to change before updating the profile and conversations. Windows may request administrator approval for the slot-mapping operation.
+Click the current-profile pill to open the SIM/eSIM selector. The active subscription is checked and disabled. Selecting the other type asks Windows Mobile Broadband to change the modem slot mapping.
+
+During the switch, WinSMS:
+1. closes the selector and shows a full-window **Switching...** overlay;
+2. blocks interaction with the rest of the application;
+3. asks Windows to remap the modem to the requested SIM/eSIM slot;
+4. treats the observed slot mapping and fresh subscriber ICCID as the source of truth rather than trusting the `netsh` process exit code alone;
+5. waits for Windows Mobile Broadband subscriber information to reflect the new subscription; and
+6. only then updates the current profile, title pill, and conversation scope.
+
+Some WWAN drivers return a non-zero `netsh` exit code even after successfully applying the slot change. WinSMS therefore verifies the actual mapping/ICCID before reporting a failure. Windows may request administrator approval for the slot-mapping command.
 
 ### Notification area
 
-Minimizing the main window moves WinSMS to the Windows notification area and removes it from normal task switching. Clicking the tray icon restores the application.
+Minimizing the main window moves WinSMS to the Windows notification area and removes it from normal task switching. The title-bar **Close (X)** button intentionally behaves the same way: it hides WinSMS to the notification area instead of terminating the process. Clicking the tray icon restores the application.
 
-While WinSMS is minimized to the notification area, an incoming SMS can display the WinSMS popup. Selecting the popup restores WinSMS and opens the relevant conversation.
+While WinSMS is in the notification area, an incoming SMS can display the WinSMS popup. Selecting the popup restores WinSMS and opens the relevant conversation.
 
-Closing the main window is different from minimizing it: WinSMS asks for confirmation and, after confirmation, closes its auxiliary notification window and exits the process.
+To terminate WinSMS, use the red **Exit** command above Settings. WinSMS asks for confirmation and, after confirmation, closes its auxiliary notification window and exits the process.
 
 ### Settings
 
@@ -121,8 +132,8 @@ Settings currently provides:
 
 - **Run WinSMS when I sign in to Windows** — manages the current user's Windows startup entry.
 - **Open Data Folder** — opens the WinSMS application-data directory in File Explorer.
-- **Detect Windows SMS Device** — enumerates available Windows SMS devices.
-- **Run Diagnostics** — reports detailed Windows SMS information useful for troubleshooting.
+- **Detect Windows SMS Device** — enumerates available Windows SMS devices and reports the effective current WinSMS subscription.
+- **Run Diagnostics** — reports detailed Windows SMS and Mobile Broadband information, including ICCID, subscriber ID, SIM/eSIM slot state, slot mapping, Windows profile metadata, telephone-number availability, and the identity selected by WinSMS.
 
 ## Data storage
 
@@ -170,7 +181,7 @@ WinSMS separates UI, presentation state, Windows SMS integration, and persistenc
 ```text
 WinSMS/
 ├── Models/          Domain and application models
-├── Services/        SMS, archive, profiles, blocking and startup services
+├── Services/        SMS, Mobile Broadband identity/switching, archive, profiles, blocking and startup services
 │   └── Interfaces/  Service abstractions
 ├── ViewModels/      MVVM presentation logic
 ├── Views/           WinUI pages
@@ -195,7 +206,10 @@ For a more detailed technical overview, see [Architecture](docs/ARCHITECTURE.md)
 | Dependency injection | Microsoft.Extensions.DependencyInjection |
 | Logging | Microsoft.Extensions.Logging |
 | SMS API | `Windows.Devices.Sms` |
-| Mobile-broadband ready-info fallback | Windows `netsh mbn show readyinfo` |
+| Subscriber identity | Win32 Mobile Broadband (MBN) subscriber API |
+| SIM/eSIM slot inspection | Windows `netsh mbn show slotstatus` / `slotmapping` |
+| SIM/eSIM switching | Windows `netsh mbn set slotmapping` with ICCID verification |
+| Mobile-broadband diagnostics fallback | Windows `netsh mbn show readyinfo` |
 | Message persistence | XML / LINQ to XML |
 | Profile/block persistence | JSON |
 | Tests | xUnit |
@@ -219,7 +233,23 @@ Windows can route SMS through a selected eSIM while `SmsDevice2.AccountPhoneNumb
 
 WinSMS re-enumerates Windows Mobile Broadband subscriber information and uses the current **ICCID** as the stable identity. Telephone numbers are optional metadata tied to that ICCID. This allows an eSIM to remain a distinct profile even when its MSISDN/phone number is not exposed by Windows.
 
+The phone-number field follows these rules:
+- if Windows reports a number for the current ICCID, that value is authoritative, overwrites the stored value, and is read-only in the profile editor;
+- if Windows does not report a number, the user can enter one manually and WinSMS stores it as metadata for that ICCID.
+
+The Windows mobile-broadband connection/profile name is also retained for display where available, but it is **not** used as identity. ICCID remains the authoritative subscription key.
+
 Existing phone-number-keyed profiles are migrated when the corresponding SIM is next detected and Windows reports a matching number. Existing message archives without an ICCID remain readable through the profile's legacy phone-number metadata.
+
+### SIM/eSIM switching
+
+On supported dual-SIM single-active (DSSA) Windows hardware, WinSMS can request the same underlying slot-mapping change represented by Windows' **Use this SIM for mobile data** selector.
+
+The implementation intentionally separates **command result** from **observed state**. A `netsh` command can return a non-zero process exit code even when the modem has already changed slots, so WinSMS checks the actual mapped slot and then confirms the active subscriber through a fresh ICCID read before updating application state.
+
+While this operation is in progress, a blocking overlay prevents the user from sending messages or changing application state against a subscription that is still being remapped.
+
+This feature depends on Windows and the modem/WWAN driver exposing usable slot-status and slot-mapping information. It is not available on every cellular modem.
 
 ## Message archive
 
@@ -232,7 +262,7 @@ Phone-number normalization currently strips non-digits, converts a leading `00` 
 
 ## Diagnostics and privacy
 
-The diagnostics screen can expose device and telecommunications identifiers such as device IDs, ICCIDs, subscriber IDs/IMSIs, account phone numbers, Windows profile names, and SMSC addresses.
+The diagnostics screen can expose device and telecommunications identifiers such as device IDs, ICCIDs, subscriber IDs/IMSIs, SIM/eSIM slot information, account phone numbers, Windows profile names, and SMSC addresses.
 
 Do not post diagnostic output publicly without reviewing and redacting sensitive identifiers first.
 
@@ -260,8 +290,20 @@ Hardware-dependent Windows SMS behavior cannot be fully validated by ordinary un
 - Blocking is application-level, not network-level.
 - Local archives are not encrypted by WinSMS.
 - SMS diagnostics may contain sensitive identifiers.
+- SIM/eSIM switching depends on Windows Mobile Broadband slot-mapping support and the modem/WWAN driver exposing usable slot information.
+- Some carriers/eSIMs do not expose an MSISDN/telephone number to Windows; WinSMS therefore treats the number as optional profile metadata.
 - Incoming-message notifications are part of the running WinSMS process; WinSMS is not a background Windows service.
-- A compatible physical modem/SIM environment is required to validate end-to-end sending and receiving.
+- A compatible physical modem/SIM environment is required to validate end-to-end sending, receiving, and SIM/eSIM switching.
+
+## Publishing
+
+WinSMS uses generated WinUI/XAML code during build and publish. If Visual Studio reports a generated-XAML type mismatch after a named control has changed type, clean stale intermediates before publishing:
+
+```powershell
+Remove-Item -Recurse -Force .\WinSMS\bin, .\WinSMS\obj -ErrorAction SilentlyContinue
+```
+
+Then reopen/rebuild the solution and publish again. Release/Publish can reuse generated files under `obj` that are not exercised by an already-running Debug build.
 
 ## Contributing
 
