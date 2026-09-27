@@ -7,9 +7,10 @@ using System.Text.RegularExpressions;
 namespace WinSMS.Services;
 
 /// <summary>
-/// Reads Windows Mobile Broadband subscriber/slot information without changing
-/// modem state. On multi-SIM/eSIM systems SmsDevice2.AccountPhoneNumber can be
-/// bound to the SMS device while Windows routes traffic through another slot.
+/// Reads Windows Mobile Broadband subscriber/slot information and performs an
+/// explicit slot-mapping change when the user requests a SIM/eSIM switch. On
+/// multi-SIM/eSIM systems SmsDevice2.AccountPhoneNumber can be bound to the SMS
+/// device while Windows routes traffic through another slot.
 /// </summary>
 public sealed class MobileBroadbandIdentityService
 {
