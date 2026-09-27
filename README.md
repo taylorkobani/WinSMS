@@ -17,6 +17,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Persistent local archive** stores conversations as XML files.
 - **Number blocking** discards future incoming messages from blocked numbers before WinSMS archives or displays them.
 - **Phone profiles** assign a friendly name and colour to local SMS numbers.
+- **eSIM-aware number detection** supplements `SmsDevice2.AccountPhoneNumber` with Windows mobile-broadband ready information when the SMS API reports a stale or missing number after a SIM/eSIM switch.
 - **System tray support** keeps WinSMS running when the main window is minimized.
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
 - **Exit confirmation** prevents accidental application shutdown.
@@ -185,6 +186,7 @@ For a more detailed technical overview, see [Architecture](docs/ARCHITECTURE.md)
 | Dependency injection | Microsoft.Extensions.DependencyInjection |
 | Logging | Microsoft.Extensions.Logging |
 | SMS API | `Windows.Devices.Sms` |
+| Mobile-broadband ready-info fallback | Windows `netsh mbn show readyinfo` |
 | Message persistence | XML / LINQ to XML |
 | Profile/block persistence | JSON |
 | Tests | xUnit |
