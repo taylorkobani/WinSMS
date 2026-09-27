@@ -375,21 +375,63 @@ public sealed class MobileBroadbandIdentityService
                 $"interface={interfaceName}",
                 $"slotindex={targetSlot.Index}");
 
-            return elevated.Success
-                ? new MobileBroadbandSwitchResult(
+            if (elevated.Success)
+            {
+                return new MobileBroadbandSwitchResult(
                     true,
                     interfaceName,
                     targetSlot.Index,
                     true,
-                    null)
-                : new MobileBroadbandSwitchResult(
-                    false,
+                    null);
+            }
+
+            // Some WWAN drivers/netsh builds have been observed to return a
+            // non-zero exit code even when the slot mapping has already changed.
+            // Verify the actual mapping before reporting failure.
+            var mappingAfterAttempt = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "show",
+                "slotmapping",
+                $"interface={interfaceName}");
+
+            var mappedAfterAttempt =
+                ParseMappedSlotIndex(mappingAfterAttempt.Output);
+
+            if (mappedAfterAttempt == targetSlot.Index)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
                     interfaceName,
                     targetSlot.Index,
                     elevated.WasElevated,
-                    elevated.Error
-                        ?? normal.Error
-                        ?? $"Windows rejected slot mapping with exit code {normal.ExitCode}.");
+                    null);
+            }
+
+            var normalDetail = FirstUsefulText(normal.Error, normal.Output);
+            var mappingDetail = FirstUsefulText(
+                mappingAfterAttempt.Error,
+                mappingAfterAttempt.Output);
+
+            var error = new StringBuilder();
+            error.Append(
+                $"Windows could not map {interfaceName} to slot {targetSlot.Index}. ");
+
+            if (!string.IsNullOrWhiteSpace(normalDetail))
+                error.Append($"netsh: {normalDetail} ");
+
+            if (!string.IsNullOrWhiteSpace(elevated.Error))
+                error.Append($"Elevated attempt: {elevated.Error} ");
+
+            if (!string.IsNullOrWhiteSpace(mappingDetail))
+                error.Append($"Current mapping: {mappingDetail}");
+
+            return new MobileBroadbandSwitchResult(
+                false,
+                interfaceName,
+                targetSlot.Index,
+                elevated.WasElevated,
+                error.ToString().Trim());
         }
 
         return new MobileBroadbandSwitchResult(
@@ -643,6 +685,28 @@ public sealed class MobileBroadbandIdentityService
             process.ExitCode,
             await outputTask,
             string.IsNullOrWhiteSpace(await errorTask) ? null : (await errorTask).Trim());
+    }
+
+    private static string? FirstUsefulText(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            var compact = string.Join(
+                " ",
+                value.Split(
+                    new[] { "\r\n", "\n" },
+                    StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.Trim())
+                    .Where(line => !string.IsNullOrWhiteSpace(line)));
+
+            if (!string.IsNullOrWhiteSpace(compact))
+                return compact;
+        }
+
+        return null;
     }
 
     private static string NormalizeIccId(string value)
