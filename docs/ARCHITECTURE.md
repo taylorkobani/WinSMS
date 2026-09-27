@@ -20,7 +20,7 @@ SmsService ───────────────→ Windows.Devices.Sms
 XmlMessageArchiveService ─→ %AppData%\WinSMS\Messages
 ```
 
-Supporting singleton services manage phone profiles, blocked numbers, and Windows startup behavior.
+Supporting singleton services manage ICCID-keyed SIM/eSIM profiles, subscriber discovery, blocked numbers, and Windows startup behavior.
 
 ## Application bootstrap
 
@@ -79,7 +79,7 @@ Incoming messages are acknowledged promptly. Blocked senders are rejected at the
 The current format is one XML document per local/remote conversation:
 
 ```text
-conversation-<local-key>-<remote-key>.xml
+conversation-sub-<subscription-hash>-<remote-key>.xml
 ```
 
 Each `Message` records identifiers and message state including direction, phone numbers, body, timestamp, status, read state, modem reference/index when available, and errors.
@@ -96,7 +96,7 @@ The service also contains compatibility logic for legacy date-named XML archives
 %AppData%\WinSMS\phone-profiles.json
 ```
 
-Profiles map a normalized local phone number to a friendly name and colour.
+Profiles are keyed by normalized ICCID. Phone number is optional metadata: Windows-reported numbers are authoritative/read-only, while users may supply a number when Windows does not report one. Profiles also retain subscriber ID, SIM/eSIM classification, and the Windows mobile-broadband connection profile name when available.
 
 ### Blocked numbers
 
@@ -116,16 +116,28 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 
 The `WinSMS` value contains the current executable path.
 
+## Cellular subscription identity
+
+`CellularSubscription` represents the active Windows mobile-broadband subscription. Its primary key is the SIM/eSIM **ICCID**. Subscriber ID/IMSI, Windows phone number, SIM/eSIM type, mobile-broadband interface ID, and Windows connection-profile name are metadata.
+
+`LegacyMbnSubscriberService` re-enumerates the Win32 Mobile Broadband interfaces and reads fresh `IMbnSubscriberInformation` rather than caching functional interface objects. This is important because Windows can switch the active SIM/eSIM while the SMS device object remains the same.
+
+`MobileBroadbandIdentityService` supplements subscriber information with read-only `netsh mbn` connection/slot diagnostics to determine Windows connection-profile metadata and, when possible, SIM versus eSIM slot classification.
+
+`SmsDevice2.AccountPhoneNumber` is not treated as the subscription identity. On some dual-SIM/eSIM systems it can remain associated with a physical SIM even while Windows routes SMS through another subscription.
+
+When Windows reports a telephone number for the active ICCID, `PhoneProfileService` overwrites that profile's number and marks it Windows-managed/read-only. When Windows does not report a number, the profile retains a user-editable number field.
+
 ## Conversation model
 
 `SmsMessage` represents a single incoming or outgoing SMS.
 
 `SmsConversation` groups messages by:
 
-- normalized local number; and
+- normalized local subscription ICCID; and
 - normalized remote number.
 
-This prevents messages for different local SIM/line identities from being merged into the same conversation view.
+This prevents messages for different SIM/eSIM subscriptions from being merged even when one subscription has no reportable phone number.
 
 ## Presentation layer
 
@@ -135,7 +147,7 @@ This prevents messages for different local SIM/line identities from being merged
 
 ### Conversations
 
-`InboxViewModel` is the conversation-oriented presentation model. It loads conversations for the current local number, sends replies, handles incoming-message events, deletes conversations/messages, and toggles blocking.
+`InboxViewModel` is the conversation-oriented presentation model. It loads conversations for the current ICCID, sends replies, handles incoming-message events, deletes conversations/messages, and toggles blocking.
 
 ### Profiles
 
