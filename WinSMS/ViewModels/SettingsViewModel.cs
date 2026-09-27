@@ -107,8 +107,11 @@ public partial class SettingsViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(readyInfo.Error))
                 lines.Add($"Mobile broadband ready-info: {readyInfo.Error}");
 
-            var effectiveNumber = await _smsService.SynchronizeCurrentPhoneNumberAsync();
-            lines.Add($"WinSMS effective current number: {(string.IsNullOrWhiteSpace(effectiveNumber) ? "(not reported)" : effectiveNumber)}");
+            var subscription = await _smsService.SynchronizeCurrentSubscriptionAsync();
+            lines.Add($"WinSMS current ICCID: {(string.IsNullOrWhiteSpace(subscription?.IccId) ? "(not reported)" : subscription.IccId)}");
+            lines.Add($"WinSMS SIM type: {subscription?.SimTypeLabel ?? "(not reported)"}");
+            lines.Add($"Windows profile name: {(string.IsNullOrWhiteSpace(subscription?.WindowsProfileName) ? "(not reported)" : subscription.WindowsProfileName)}");
+            lines.Add($"Windows subscriber phone number: {(string.IsNullOrWhiteSpace(subscription?.WindowsPhoneNumber) ? "(not reported)" : subscription.WindowsPhoneNumber)}");
 
             WindowsSmsDiagnostics = string.Join(Environment.NewLine, lines);
             StatusMessage = devices.Count > 0
@@ -208,8 +211,11 @@ public partial class SettingsViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(readyInfo.Error))
                 lines.Add($"Query status: {readyInfo.Error}");
 
-            var effectiveNumber = await _smsService.SynchronizeCurrentPhoneNumberAsync();
-            lines.Add($"WinSMS effective current number: {(string.IsNullOrWhiteSpace(effectiveNumber) ? "(not reported)" : effectiveNumber)}");
+            var subscription = await _smsService.SynchronizeCurrentSubscriptionAsync();
+            lines.Add($"WinSMS current ICCID: {(string.IsNullOrWhiteSpace(subscription?.IccId) ? "(not reported)" : subscription.IccId)}");
+            lines.Add($"WinSMS SIM type: {subscription?.SimTypeLabel ?? "(not reported)"}");
+            lines.Add($"Windows profile name: {(string.IsNullOrWhiteSpace(subscription?.WindowsProfileName) ? "(not reported)" : subscription.WindowsProfileName)}");
+            lines.Add($"Windows subscriber phone number: {(string.IsNullOrWhiteSpace(subscription?.WindowsPhoneNumber) ? "(not reported)" : subscription.WindowsPhoneNumber)}");
 
             StatusMessage = devices.Count > 0
                 ? "Windows SMS diagnostics completed."
