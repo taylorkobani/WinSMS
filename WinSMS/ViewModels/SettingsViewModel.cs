@@ -12,6 +12,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly StartupService _startupService;
     private readonly MobileBroadbandIdentityService _mobileBroadbandIdentity;
     private readonly ISmsService _smsService;
+    private readonly PhoneProfileService _phoneProfiles;
     private bool _updatingStartup;
 
     [ObservableProperty]
@@ -20,11 +21,13 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(
         StartupService startupService,
         MobileBroadbandIdentityService mobileBroadbandIdentity,
-        ISmsService smsService)
+        ISmsService smsService,
+        PhoneProfileService phoneProfiles)
     {
         _startupService = startupService;
         _mobileBroadbandIdentity = mobileBroadbandIdentity;
         _smsService = smsService;
+        _phoneProfiles = phoneProfiles;
         _runAtWindowsStartup = _startupService.IsEnabled();
     }
 
@@ -112,6 +115,10 @@ public partial class SettingsViewModel : ObservableObject
             lines.Add($"WinSMS SIM type: {subscription?.SimTypeLabel ?? "(not reported)"}");
             lines.Add($"Windows profile name: {(string.IsNullOrWhiteSpace(subscription?.WindowsProfileName) ? "(not reported)" : subscription.WindowsProfileName)}");
             lines.Add($"Windows subscriber phone number: {(string.IsNullOrWhiteSpace(subscription?.WindowsPhoneNumber) ? "(not reported)" : subscription.WindowsPhoneNumber)}");
+            var winSmsProfile = string.IsNullOrWhiteSpace(subscription?.IccId)
+                ? null
+                : _phoneProfiles.GetProfile(subscription.IccId);
+            lines.Add($"WinSMS profile phone number: {(string.IsNullOrWhiteSpace(winSmsProfile?.PhoneNumber) ? "(not set)" : winSmsProfile.PhoneNumber)}");
 
             WindowsSmsDiagnostics = string.Join(Environment.NewLine, lines);
             StatusMessage = devices.Count > 0
@@ -216,6 +223,10 @@ public partial class SettingsViewModel : ObservableObject
             lines.Add($"WinSMS SIM type: {subscription?.SimTypeLabel ?? "(not reported)"}");
             lines.Add($"Windows profile name: {(string.IsNullOrWhiteSpace(subscription?.WindowsProfileName) ? "(not reported)" : subscription.WindowsProfileName)}");
             lines.Add($"Windows subscriber phone number: {(string.IsNullOrWhiteSpace(subscription?.WindowsPhoneNumber) ? "(not reported)" : subscription.WindowsPhoneNumber)}");
+            var winSmsProfile = string.IsNullOrWhiteSpace(subscription?.IccId)
+                ? null
+                : _phoneProfiles.GetProfile(subscription.IccId);
+            lines.Add($"WinSMS profile phone number: {(string.IsNullOrWhiteSpace(winSmsProfile?.PhoneNumber) ? "(not set)" : winSmsProfile.PhoneNumber)}");
 
             StatusMessage = devices.Count > 0
                 ? "Windows SMS diagnostics completed."
