@@ -33,6 +33,32 @@ public sealed class PhoneProfileService
             .ToList();
     }
 
+    public async Task<bool> EnsureProfileAsync(string phoneNumber)
+    {
+        var key = NormalizePhoneNumber(phoneNumber);
+        if (string.IsNullOrWhiteSpace(key))
+            return false;
+
+        var profiles = Load();
+        if (profiles.ContainsKey(key))
+            return false;
+
+        profiles[key] = new PhoneProfile
+        {
+            PhoneNumber = key,
+            Name = string.Empty,
+            Color = "#0078D4"
+        };
+
+        Directory.CreateDirectory(Path.GetDirectoryName(_filePath)!);
+        await File.WriteAllTextAsync(
+            _filePath,
+            JsonSerializer.Serialize(profiles, new JsonSerializerOptions { WriteIndented = true }));
+
+        ProfilesChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     public async Task SaveProfileAsync(string phoneNumber, string name, string color)
     {
         var key = NormalizePhoneNumber(phoneNumber);
