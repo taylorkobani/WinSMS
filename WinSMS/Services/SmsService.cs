@@ -10,6 +10,7 @@ public class SmsService : ISmsService
     private readonly IMessageArchiveService _archive;
     private readonly ILogger<SmsService> _logger;
     private readonly BlockedNumberService _blockedNumbers;
+    private readonly MobileBroadbandIdentityService _mobileBroadbandIdentity;
     private SmsMessageRegistration? _messageRegistration;
     private readonly object _phoneNumberSync = new();
     private string _currentPhoneNumber = string.Empty;
@@ -19,28 +20,48 @@ public class SmsService : ISmsService
 
     public string GetCurrentPhoneNumber()
     {
+        lock (_phoneNumberSync)
+        {
+            if (!string.IsNullOrWhiteSpace(_currentPhoneNumber))
+                return _currentPhoneNumber;
+        }
+
         var number = SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
         UpdateCurrentPhoneNumber(number);
         return number;
     }
 
-    public Task<string> SynchronizeCurrentPhoneNumberAsync(
+    public async Task<string> SynchronizeCurrentPhoneNumberAsync(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Deliberately use only the same default SmsDevice2 access path that
-        // WinSMS uses for sending. This method is called from the UI thread.
-        // Avoid device enumeration/FromId and mobile-broadband identity APIs,
-        // which proved disruptive on real modem hardware.
-        return Task.FromResult(GetCurrentPhoneNumber());
+        // SmsDevice2 can continue reporting the previous physical-SIM number
+        // after Windows switches the active subscription to an eSIM. Read the
+        // non-mutating mobile-broadband ready-info as a second source and prefer
+        // its active telephone number when available.
+        var smsApiNumber = SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
+        var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync(cancellationToken);
+        var broadbandNumber = readyInfo.TelephoneNumbers.FirstOrDefault();
+
+        var effectiveNumber = !string.IsNullOrWhiteSpace(broadbandNumber)
+            ? broadbandNumber
+            : smsApiNumber;
+
+        UpdateCurrentPhoneNumber(effectiveNumber);
+        return effectiveNumber;
     }
 
-    public SmsService(IMessageArchiveService archive, ILogger<SmsService> logger, BlockedNumberService blockedNumbers)
+    public SmsService(
+        IMessageArchiveService archive,
+        ILogger<SmsService> logger,
+        BlockedNumberService blockedNumbers,
+        MobileBroadbandIdentityService mobileBroadbandIdentity)
     {
         _archive = archive;
         _logger = logger;
         _blockedNumbers = blockedNumbers;
+        _mobileBroadbandIdentity = mobileBroadbandIdentity;
         InitializeWindowsSmsReceiving();
     }
 
@@ -67,12 +88,14 @@ public class SmsService : ISmsService
         var device = SmsDevice2.GetDefault()
             ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
 
-        UpdateCurrentPhoneNumber(device.AccountPhoneNumber);
+        var localPhoneNumber = GetCurrentPhoneNumber();
+        if (string.IsNullOrWhiteSpace(localPhoneNumber))
+            localPhoneNumber = device.AccountPhoneNumber?.Trim() ?? string.Empty;
 
         var message = new SmsMessage
         {
             PhoneNumber = phoneNumber,
-            LocalPhoneNumber = device.AccountPhoneNumber?.Trim() ?? string.Empty,
+            LocalPhoneNumber = localPhoneNumber,
             Body = body,
             Direction = SmsDirection.Outgoing,
             Status = SmsStatus.Pending,
