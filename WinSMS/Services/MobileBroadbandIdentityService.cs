@@ -22,7 +22,7 @@ public sealed class MobileBroadbandIdentityService
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
     private static readonly Regex SlotIndexValue = new(
-        @"slot(?:\s+index)?\s*[:=]?\s*(\d+)",
+        @"slot(?:\s+(?:index|mapping))?\s*[:=]?\s*(\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public async Task<MobileBroadbandReadyInfo> GetReadyInfoAsync(
