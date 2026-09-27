@@ -241,6 +241,94 @@ public class SmsService : ISmsService
         }
     }
 
+    public async Task<CellularSubscription?> SwitchCurrentSubscriptionAsync(
+        string targetIccId,
+        CancellationToken cancellationToken = default)
+    {
+        var targetKey = NormalizeIccId(targetIccId);
+        if (string.IsNullOrWhiteSpace(targetKey))
+            throw new ArgumentException("A target ICCID is required.", nameof(targetIccId));
+
+        var current = GetCurrentSubscription();
+        if (current != null &&
+            NormalizeIccId(current.IccId) == targetKey)
+        {
+            return current;
+        }
+
+        var targetProfile = _phoneProfiles.GetProfile(targetKey);
+        if (string.IsNullOrWhiteSpace(targetProfile.IccId))
+        {
+            throw new InvalidOperationException(
+                "The selected cellular subscription is not known to WinSMS.");
+        }
+
+        if (!targetProfile.IsEsim.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Windows has not identified whether the selected profile is a SIM or eSIM.");
+        }
+
+        _logger.LogInformation(
+            "Requesting cellular slot switch. TargetICCID={IccId}; Type={Type}",
+            targetKey,
+            targetProfile.IsEsim.Value ? "eSIM" : "SIM");
+
+        var switchResult = await _mobileBroadbandIdentity.SwitchSlotAsync(
+            targetProfile.IsEsim.Value,
+            cancellationToken);
+
+        if (!switchResult.Success)
+        {
+            throw new InvalidOperationException(
+                switchResult.Error ?? "Windows rejected the SIM/eSIM switch.");
+        }
+
+        // Slot remapping is asynchronous at the modem/network layer. Do not
+        // change WinSMS' current profile until Windows MBN confirms the target
+        // subscriber ICCID is actually active.
+        var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(45);
+        Exception? lastError = null;
+
+        while (DateTimeOffset.UtcNow < timeoutAt)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                // Force metadata to be recomputed after the modem remaps slots.
+                _metadataIccId = string.Empty;
+
+                var subscription =
+                    await SynchronizeCurrentSubscriptionAsync(cancellationToken);
+
+                if (subscription != null &&
+                    NormalizeIccId(subscription.IccId) == targetKey)
+                {
+                    _logger.LogInformation(
+                        "Cellular slot switch confirmed. ICCID={IccId}",
+                        targetKey);
+
+                    return subscription;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastError = ex;
+                _logger.LogDebug(
+                    ex,
+                    "Waiting for Windows to expose the switched cellular subscription.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
+        }
+
+        throw new TimeoutException(
+            lastError == null
+                ? "Windows accepted the SIM/eSIM switch, but the target subscription did not become active within 45 seconds."
+                : $"Windows accepted the SIM/eSIM switch, but activation could not be confirmed: {lastError.Message}");
+    }
+
     public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(
         CancellationToken cancellationToken = default)
     {
