@@ -367,6 +367,26 @@ public sealed class MobileBroadbandIdentityService
                     null);
             }
 
+            // Some Windows/WWAN combinations return exit code 1 even though
+            // the mapping was applied. Check the observable mapping BEFORE
+            // asking for elevation so a successful normal switch does not
+            // produce an unnecessary UAC prompt.
+            var normalMappedSlot = await WaitForMappedSlotAsync(
+                interfaceName,
+                targetSlot.Index,
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
+
+            if (normalMappedSlot == targetSlot.Index)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    false,
+                    null);
+            }
+
             var elevated = await RunElevatedNetshAsync(
                 cancellationToken,
                 "mbn",
@@ -385,18 +405,14 @@ public sealed class MobileBroadbandIdentityService
                     null);
             }
 
-            // Some WWAN drivers/netsh builds have been observed to return a
-            // non-zero exit code even when the slot mapping has already changed.
-            // Verify the actual mapping before reporting failure.
-            var mappingAfterAttempt = await RunNetshAsync(
-                cancellationToken,
-                "mbn",
-                "show",
-                "slotmapping",
-                $"interface={interfaceName}");
-
-            var mappedAfterAttempt =
-                ParseMappedSlotIndex(mappingAfterAttempt.Output);
+            // Do not trust netsh's exit code as the final result. Verify the
+            // mapping again because the elevated process can also return 1
+            // after the WWAN service has already accepted the slot change.
+            var mappedAfterAttempt = await WaitForMappedSlotAsync(
+                interfaceName,
+                targetSlot.Index,
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
 
             if (mappedAfterAttempt == targetSlot.Index)
             {
@@ -407,6 +423,13 @@ public sealed class MobileBroadbandIdentityService
                     elevated.WasElevated,
                     null);
             }
+
+            var mappingAfterAttempt = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "show",
+                "slotmapping",
+                $"interface={interfaceName}");
 
             var normalDetail = FirstUsefulText(normal.Error, normal.Output);
             var mappingDetail = FirstUsefulText(
@@ -620,6 +643,38 @@ public sealed class MobileBroadbandIdentityService
             diagnostics.AppendLine(result.Output.Trim());
         if (!string.IsNullOrWhiteSpace(result.Error))
             diagnostics.AppendLine($"stderr: {result.Error}");
+    }
+
+    private static async Task<int?> WaitForMappedSlotAsync(
+        string interfaceName,
+        int targetSlotIndex,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        int? lastMappedSlot = null;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var mapping = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "show",
+                "slotmapping",
+                $"interface={interfaceName}");
+
+            lastMappedSlot = ParseMappedSlotIndex(mapping.Output);
+            if (lastMappedSlot == targetSlotIndex)
+                return lastMappedSlot;
+
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(250),
+                cancellationToken);
+        }
+
+        return lastMappedSlot;
     }
 
     private static async Task<ElevatedNetshResult> RunElevatedNetshAsync(
