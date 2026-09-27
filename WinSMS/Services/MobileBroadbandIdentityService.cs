@@ -31,6 +31,14 @@ public sealed class MobileBroadbandIdentityService
         @"slot\s+index\s+(\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex IccIdRegex = new(
+        @"(?:ICCID|SIM\s+ICC(?:\s+ID)?)\s*:\s*([0-9A-F]{15,22})",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex ProfileNameRegex = new(
+        @"^\s*Profile(?:\s+name)?\s*:\s*(.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
     public async Task<MobileBroadbandReadyInfo> GetReadyInfoAsync(
         CancellationToken cancellationToken = default)
     {
@@ -38,6 +46,7 @@ public sealed class MobileBroadbandIdentityService
         var errors = new List<string>();
         var interfaceNames = new List<string>();
         var slotResults = new List<MobileBroadbandSlotInfo>();
+        var windowsProfileName = string.Empty;
         IReadOnlyList<LegacyMbnSubscriberInfo> legacySubscribers = Array.Empty<LegacyMbnSubscriberInfo>();
 
         try
@@ -97,6 +106,7 @@ public sealed class MobileBroadbandIdentityService
                     Array.Empty<MobileBroadbandSlotInfo>(),
                     null,
                     legacySubscribers,
+                    string.Empty,
                     diagnostics.ToString(),
                     "Windows did not report a mobile broadband interface.");
             }
@@ -107,6 +117,16 @@ public sealed class MobileBroadbandIdentityService
 
                 diagnostics.AppendLine();
                 diagnostics.AppendLine($"===== Interface: {interfaceName} =====");
+
+                var connection = await RunNetshAsync(
+                    cancellationToken,
+                    "mbn", "show", "connection", $"interface={interfaceName}");
+
+                diagnostics.AppendLine("connection:");
+                AppendResult(diagnostics, connection);
+
+                if (string.IsNullOrWhiteSpace(windowsProfileName))
+                    windowsProfileName = ParseConnectionProfileName(connection.Output);
 
                 var slotStatus = await RunNetshAsync(
                     cancellationToken,
@@ -155,6 +175,7 @@ public sealed class MobileBroadbandIdentityService
                     AppendResult(diagnostics, ready);
 
                     var numbers = ParseTelephoneNumbers(ready.Output);
+                    var iccId = ParseIccId(ready.Output);
                     var stateText = GetSlotStateText(slotStatus.Output, slotIndex);
                     var isEsim = stateText.Contains("esim", StringComparison.OrdinalIgnoreCase);
 
@@ -163,6 +184,7 @@ public sealed class MobileBroadbandIdentityService
                         slotIndex,
                         selectedSlot == slotIndex,
                         isEsim,
+                        iccId,
                         stateText,
                         numbers,
                         ready.ExitCode,
@@ -186,7 +208,17 @@ public sealed class MobileBroadbandIdentityService
                 }
             }
 
-            var selected = slotResults.FirstOrDefault(slot => slot.IsSelected);
+            var currentIccId = legacySubscribers
+                .Select(subscriber => subscriber.SimIccId)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+                ?? string.Empty;
+
+            var selected = !string.IsNullOrWhiteSpace(currentIccId)
+                ? slotResults.FirstOrDefault(slot =>
+                    NormalizeIccId(slot.IccId) == NormalizeIccId(currentIccId))
+                : null;
+
+            selected ??= slotResults.FirstOrDefault(slot => slot.IsSelected);
 
             // A freshly enumerated Win32 MBN interface is the most direct
             // subscriber source Windows exposes to ordinary desktop apps. Use
@@ -228,6 +260,7 @@ public sealed class MobileBroadbandIdentityService
                 slotResults,
                 selected,
                 legacySubscribers,
+                windowsProfileName,
                 diagnostics.ToString(),
                 errors.Count == 0 ? null : string.Join(" | ", errors));
         }
@@ -243,6 +276,7 @@ public sealed class MobileBroadbandIdentityService
                 slotResults,
                 slotResults.FirstOrDefault(slot => slot.IsSelected),
                 legacySubscribers,
+                windowsProfileName,
                 diagnostics.ToString(),
                 ex.Message);
         }
@@ -310,6 +344,18 @@ public sealed class MobileBroadbandIdentityService
         }
 
         return null;
+    }
+
+    internal static string ParseIccId(string output)
+    {
+        var match = IccIdRegex.Match(output ?? string.Empty);
+        return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
+    }
+
+    internal static string ParseConnectionProfileName(string output)
+    {
+        var match = ProfileNameRegex.Match(output ?? string.Empty);
+        return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
     }
 
     internal static IReadOnlyList<string> ParseTelephoneNumbers(string output)
@@ -416,6 +462,12 @@ public sealed class MobileBroadbandIdentityService
             string.IsNullOrWhiteSpace(await errorTask) ? null : (await errorTask).Trim());
     }
 
+    private static string NormalizeIccId(string value)
+        => new string((value ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
+
     private static string Normalize(string number)
     {
         var digits = new string((number ?? string.Empty).Where(char.IsDigit).ToArray());
@@ -435,6 +487,7 @@ public sealed record MobileBroadbandSlotInfo(
     int SlotIndex,
     bool IsSelected,
     bool IsEsim,
+    string IccId,
     string State,
     IReadOnlyList<string> TelephoneNumbers,
     int ReadyInfoExitCode,
@@ -446,5 +499,6 @@ public sealed record MobileBroadbandReadyInfo(
     IReadOnlyList<MobileBroadbandSlotInfo> Slots,
     MobileBroadbandSlotInfo? SelectedSlot,
     IReadOnlyList<LegacyMbnSubscriberInfo> LegacySubscribers,
+    string WindowsProfileName,
     string RawOutput,
     string? Error);
