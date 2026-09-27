@@ -124,7 +124,10 @@ public sealed class PhoneProfileService
         if (!string.IsNullOrWhiteSpace(subscription.WindowsPhoneNumber))
         {
             var windowsPhone = subscription.WindowsPhoneNumber.Trim();
-            if (!PhoneNumbersEquivalent(profile.PhoneNumber, windowsPhone))
+            if (!string.Equals(
+                    profile.PhoneNumber,
+                    windowsPhone,
+                    StringComparison.Ordinal))
             {
                 profile.PhoneNumber = windowsPhone;
                 changed = true;
