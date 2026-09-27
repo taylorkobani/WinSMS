@@ -23,11 +23,21 @@
                 <Border x:Name="PhoneProfilePill"
                         Padding="10,3"
                         CornerRadius="12"
-                        Visibility="Collapsed">
-                    <TextBlock x:Name="PhoneProfileName"
-                               Foreground="White"
-                               FontWeight="SemiBold"
-                               FontSize="12"/>
+                        Visibility="Collapsed"
+                        Tapped="PhoneProfilePill_Tapped"
+                        ToolTipService.ToolTip="Switch SIM or eSIM"
+                        AutomationProperties.Name="Current cellular subscription. Click to switch SIM or eSIM.">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <TextBlock x:Name="PhoneProfileName"
+                                   Foreground="White"
+                                   FontWeight="SemiBold"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"/>
+                        <FontIcon Glyph="&#xE70D;"
+                                  Foreground="White"
+                                  FontSize="10"
+                                  VerticalAlignment="Center"/>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </Grid>
