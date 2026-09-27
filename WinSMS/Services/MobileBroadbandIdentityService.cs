@@ -39,6 +39,10 @@ public sealed class MobileBroadbandIdentityService
         @"^\s*Profile(?:\s+name)?\s*:\s*(.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
+    private static readonly Regex ProfilesListRegex = new(
+        @"^\s*(?:All\s+User\s+Profile|Profile\s+Name|Profile)\s*:\s*(.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
     public async Task<MobileBroadbandReadyInfo> GetReadyInfoAsync(
         CancellationToken cancellationToken = default)
     {
@@ -127,6 +131,19 @@ public sealed class MobileBroadbandIdentityService
 
                 if (string.IsNullOrWhiteSpace(windowsProfileName))
                     windowsProfileName = ParseConnectionProfileName(connection.Output);
+
+                if (string.IsNullOrWhiteSpace(windowsProfileName))
+                {
+                    var profiles = await RunNetshAsync(
+                        cancellationToken,
+                        "mbn", "show", "profiles", $"interface={interfaceName}");
+
+                    diagnostics.AppendLine("profiles:");
+                    AppendResult(diagnostics, profiles);
+
+                    windowsProfileName = ParseProfileNames(profiles.Output)
+                        .FirstOrDefault() ?? string.Empty;
+                }
 
                 var slotStatus = await RunNetshAsync(
                     cancellationToken,
@@ -357,6 +374,13 @@ public sealed class MobileBroadbandIdentityService
         var match = ProfileNameRegex.Match(output ?? string.Empty);
         return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
     }
+
+    internal static IReadOnlyList<string> ParseProfileNames(string output)
+        => ProfilesListRegex.Matches(output ?? string.Empty)
+            .Select(match => match.Groups[1].Value.Trim())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     internal static IReadOnlyList<string> ParseTelephoneNumbers(string output)
     {
