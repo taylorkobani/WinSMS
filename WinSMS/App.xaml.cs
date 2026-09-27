@@ -41,6 +41,7 @@ public partial class App : Application
         services.AddSingleton<PhoneProfileService>();
         services.AddSingleton<BlockedNumberService>();
         services.AddSingleton<StartupService>();
+        services.AddSingleton<MobileBroadbandIdentityService>();
 
         // ViewModels
         services.AddTransient<InboxViewModel>();
