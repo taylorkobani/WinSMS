@@ -20,6 +20,7 @@
     <Compile Include="..\WinSMS\Models\AppSettings.cs" Link="Models\AppSettings.cs"/>
     <Compile Include="..\WinSMS\Models\ModemInfo.cs" Link="Models\ModemInfo.cs"/>
     <Compile Include="..\WinSMS\Services\SmsService.cs" Link="Services\SmsService.cs"/>
+    <Compile Include="..\WinSMS\Services\MobileBroadbandIdentityService.cs" Link="Services\MobileBroadbandIdentityService.cs"/>
     <Compile Include="..\WinSMS\Services\XmlMessageArchiveService.cs" Link="Services\XmlMessageArchiveService.cs"/>
     <Compile Include="..\WinSMS\Services\Interfaces\ISmsService.cs" Link="Services\Interfaces\ISmsService.cs"/>
     <Compile Include="..\WinSMS\Services\Interfaces\IModemService.cs" Link="Services\Interfaces\IModemService.cs"/>
