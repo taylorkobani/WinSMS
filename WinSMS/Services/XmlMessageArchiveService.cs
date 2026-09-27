@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
-using System.Xml.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
@@ -30,16 +30,27 @@ public class XmlMessageArchiveService : IMessageArchiveService
         try
         {
             EnsureDirectoryExists();
-            var filePath = GetConversationFilePath(message.LocalPhoneNumber, message.PhoneNumber);
-            var doc = LoadOrCreateConversationDocument(filePath, message.LocalPhoneNumber, message.PhoneNumber);
+
+            var filePath = GetConversationFilePath(
+                message.LocalSubscriptionId,
+                message.LocalPhoneNumber,
+                message.PhoneNumber);
+
+            var doc = LoadOrCreateConversationDocument(
+                filePath,
+                message.LocalSubscriptionId,
+                message.LocalPhoneNumber,
+                message.PhoneNumber);
 
             var root = doc.Root!;
             var existing = root.Descendants("Message")
                 .FirstOrDefault(e => e.Element("Id")?.Value == message.Id.ToString());
+
             if (existing != null)
                 existing.ReplaceWith(MessageToXml(message));
             else
                 root.Add(MessageToXml(message));
+
             await SaveDocumentAsync(doc, filePath);
         }
         catch (Exception ex)
@@ -55,28 +66,11 @@ public class XmlMessageArchiveService : IMessageArchiveService
 
     public async Task<IReadOnlyList<SmsMessage>> LoadMessagesForDateAsync(DateOnly date)
     {
-        await _fileLock.WaitAsync();
-        try
-        {
-            EnsureDirectoryExists();
-            var all = new List<SmsMessage>();
-            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
-            {
-                try { all.AddRange(ParseMessages(XDocument.Load(file))); }
-                catch (Exception ex) { _logger.LogWarning(ex, "Failed to read archive file {File}", file); }
-            }
-            return all.Where(m => DateOnly.FromDateTime(m.Timestamp.LocalDateTime) == date)
-                      .OrderBy(m => m.Timestamp).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to load messages for date {Date}", date);
-            return Array.Empty<SmsMessage>();
-        }
-        finally
-        {
-            _fileLock.Release();
-        }
+        var all = await LoadAllMessagesAsync();
+        return all
+            .Where(m => DateOnly.FromDateTime(m.Timestamp.LocalDateTime) == date)
+            .OrderBy(m => m.Timestamp)
+            .ToList();
     }
 
     public async Task<IReadOnlyList<SmsMessage>> LoadAllMessagesAsync()
@@ -86,18 +80,19 @@ public class XmlMessageArchiveService : IMessageArchiveService
         {
             EnsureDirectoryExists();
             var all = new List<SmsMessage>();
+
             foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
             {
                 try
                 {
-                    var doc = XDocument.Load(file);
-                    all.AddRange(ParseMessages(doc));
+                    all.AddRange(ParseMessages(XDocument.Load(file)));
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to read archive file {File}", file);
                 }
             }
+
             return all.OrderBy(m => m.Timestamp).ToList();
         }
         catch (Exception ex)
@@ -116,18 +111,33 @@ public class XmlMessageArchiveService : IMessageArchiveService
         await _fileLock.WaitAsync();
         try
         {
-            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "????-??-??.xml"))
+            EnsureDirectoryExists();
+
+            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
             {
-                var doc = XDocument.Load(file);
+                XDocument doc;
+                try { doc = XDocument.Load(file); }
+                catch { continue; }
+
                 var element = doc.Descendants("Message")
                     .FirstOrDefault(e => e.Element("Id")?.Value == messageId.ToString());
 
-                if (element != null)
+                if (element == null)
+                    continue;
+
+                element.Remove();
+
+                if (!doc.Descendants("Message").Any() &&
+                    string.Equals(doc.Root?.Name.LocalName, "Conversation", StringComparison.OrdinalIgnoreCase))
                 {
-                    element.Remove();
-                    await SaveDocumentAsync(doc, file);
-                    break;
+                    File.Delete(file);
                 }
+                else
+                {
+                    await SaveDocumentAsync(doc, file);
+                }
+
+                return;
             }
         }
         catch (Exception ex)
@@ -144,25 +154,27 @@ public class XmlMessageArchiveService : IMessageArchiveService
     public async Task UpdateMessageAsync(SmsMessage message)
     {
         await _fileLock.WaitAsync();
-        bool released = false;
+        var releaseLock = true;
+
         try
         {
-            var filePath = GetConversationFilePath(message.LocalPhoneNumber, message.PhoneNumber);
-            if (!File.Exists(filePath))
+            EnsureDirectoryExists();
+
+            var preferredPath = GetConversationFilePath(
+                message.LocalSubscriptionId,
+                message.LocalPhoneNumber,
+                message.PhoneNumber);
+
+            var filePath = File.Exists(preferredPath)
+                ? preferredPath
+                : FindMessageFile(message.Id);
+
+            if (filePath == null)
             {
-                // During migration the message may still live in a legacy daily archive.
-                var legacyFile = Directory.EnumerateFiles(_archiveDirectory, "????-??-??.xml")
-                    .FirstOrDefault(f => XDocument.Load(f).Descendants("Message")
-                        .Any(e => e.Element("Id")?.Value == message.Id.ToString()));
-                if (legacyFile != null)
-                    filePath = legacyFile;
-                else
-                {
-                    _fileLock.Release();
-                    released = true;
-                    await SaveMessageAsync(message);
-                    return;
-                }
+                _fileLock.Release();
+                releaseLock = false;
+                await SaveMessageAsync(message);
+                return;
             }
 
             var doc = XDocument.Load(filePath);
@@ -170,13 +182,9 @@ public class XmlMessageArchiveService : IMessageArchiveService
                 .FirstOrDefault(e => e.Element("Id")?.Value == message.Id.ToString());
 
             if (existing != null)
-            {
                 existing.ReplaceWith(MessageToXml(message));
-            }
             else
-            {
                 doc.Root!.Add(MessageToXml(message));
-            }
 
             await SaveDocumentAsync(doc, filePath);
         }
@@ -187,137 +195,149 @@ public class XmlMessageArchiveService : IMessageArchiveService
         }
         finally
         {
-            if (!released)
+            if (releaseLock)
                 _fileLock.Release();
         }
     }
 
-    private static XElement MessageToXml(SmsMessage msg)
+    public async Task<IReadOnlyList<SmsConversation>> LoadConversationsAsync(
+        string localSubscriptionId,
+        string? legacyLocalPhoneNumber = null)
     {
-        var el = new XElement("Message",
-            new XElement("Id", msg.Id.ToString()),
-            new XElement("Direction", msg.Direction.ToString()),
-            new XElement("PhoneNumber", msg.PhoneNumber),
-            new XElement("LocalPhoneNumber", msg.LocalPhoneNumber),
-            new XElement("Body", msg.Body),
-            new XElement("Timestamp", msg.Timestamp.ToString("O")),
-            new XElement("Status", msg.Status.ToString()),
-            new XElement("IsRead", msg.IsRead.ToString()));
-
-        if (msg.ModemMessageIndex.HasValue)
-            el.Add(new XElement("ModemMessageIndex", msg.ModemMessageIndex.Value));
-        if (msg.ModemReference != null)
-            el.Add(new XElement("ModemReference", msg.ModemReference));
-        if (msg.Error != null)
-            el.Add(new XElement("Error", msg.Error));
-
-        return el;
-    }
-
-    internal static IReadOnlyList<SmsMessage> ParseMessages(XDocument doc)
-    {
-        return doc.Descendants("Message").Select(ParseMessageElement).Where(m => m != null).Cast<SmsMessage>().ToList();
-    }
-
-    internal static SmsMessage? ParseMessageElement(XElement el)
-    {
-        try
-        {
-            return new SmsMessage
-            {
-                Id = Guid.Parse(el.Element("Id")!.Value),
-                Direction = Enum.Parse<SmsDirection>(el.Element("Direction")!.Value),
-                PhoneNumber = el.Element("PhoneNumber")?.Value ?? string.Empty,
-                LocalPhoneNumber = el.Element("LocalPhoneNumber")?.Value ?? string.Empty,
-                Body = el.Element("Body")?.Value ?? string.Empty,
-                Timestamp = DateTimeOffset.Parse(el.Element("Timestamp")!.Value),
-                Status = Enum.Parse<SmsStatus>(el.Element("Status")!.Value),
-                IsRead = bool.Parse(el.Element("IsRead")?.Value ?? "false"),
-                ModemMessageIndex = el.Element("ModemMessageIndex") != null
-                    ? int.Parse(el.Element("ModemMessageIndex")!.Value) : null,
-                ModemReference = el.Element("ModemReference")?.Value,
-                Error = el.Element("Error")?.Value
-            };
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    public async Task<IReadOnlyList<SmsConversation>> LoadConversationsAsync(string localPhoneNumber)
-    {
-        var localKey = NormalizePhoneNumber(localPhoneNumber);
-        if (string.IsNullOrWhiteSpace(localKey))
+        var subscriptionKey = NormalizeSubscriptionId(localSubscriptionId);
+        if (string.IsNullOrWhiteSpace(subscriptionKey))
             return Array.Empty<SmsConversation>();
 
         var all = await LoadAllMessagesAsync();
-        return all.Where(m => NormalizePhoneNumber(m.LocalPhoneNumber) == localKey)
-            .GroupBy(m => NormalizePhoneNumber(m.PhoneNumber), StringComparer.OrdinalIgnoreCase)
-            .Select(g => new SmsConversation
+
+        return all
+            .Where(message => MatchesLocalSubscription(
+                message,
+                subscriptionKey,
+                legacyLocalPhoneNumber))
+            .GroupBy(
+                message => NormalizePhoneNumber(message.PhoneNumber),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
             {
-                LocalPhoneNumber = localPhoneNumber,
-                PhoneNumber = g.OrderByDescending(m => m.Timestamp).First().PhoneNumber,
-                Messages = new ObservableCollection<SmsMessage>(g.OrderBy(m => m.Timestamp))
+                var ordered = group.OrderBy(message => message.Timestamp).ToList();
+                var latest = ordered[^1];
+
+                return new SmsConversation
+                {
+                    LocalSubscriptionId = localSubscriptionId,
+                    LocalPhoneNumber = ordered
+                        .Select(message => message.LocalPhoneNumber)
+                        .LastOrDefault(value => !string.IsNullOrWhiteSpace(value))
+                        ?? legacyLocalPhoneNumber
+                        ?? string.Empty,
+                    PhoneNumber = latest.PhoneNumber,
+                    Messages = new ObservableCollection<SmsMessage>(ordered)
+                };
             })
             .OrderByDescending(conversation => conversation.LastMessageTimestamp)
             .ToList();
     }
 
-    public async Task<SmsConversation?> LoadConversationAsync(string localPhoneNumber, string phoneNumber)
+    public async Task<SmsConversation?> LoadConversationAsync(
+        string localSubscriptionId,
+        string phoneNumber,
+        string? legacyLocalPhoneNumber = null)
     {
-        var localKey = NormalizePhoneNumber(localPhoneNumber);
+        var subscriptionKey = NormalizeSubscriptionId(localSubscriptionId);
         var remoteKey = NormalizePhoneNumber(phoneNumber);
+
+        if (string.IsNullOrWhiteSpace(subscriptionKey) ||
+            string.IsNullOrWhiteSpace(remoteKey))
+        {
+            return null;
+        }
+
         var all = await LoadAllMessagesAsync();
-        var messages = all.Where(m =>
-                NormalizePhoneNumber(m.LocalPhoneNumber) == localKey &&
-                NormalizePhoneNumber(m.PhoneNumber) == remoteKey)
-            .OrderBy(m => m.Timestamp)
+
+        var messages = all
+            .Where(message =>
+                MatchesLocalSubscription(
+                    message,
+                    subscriptionKey,
+                    legacyLocalPhoneNumber) &&
+                NormalizePhoneNumber(message.PhoneNumber) == remoteKey)
+            .OrderBy(message => message.Timestamp)
             .ToList();
 
-        return messages.Count == 0 ? null : new SmsConversation
+        if (messages.Count == 0)
+            return null;
+
+        return new SmsConversation
         {
-            LocalPhoneNumber = localPhoneNumber,
+            LocalSubscriptionId = localSubscriptionId,
+            LocalPhoneNumber = messages
+                .Select(message => message.LocalPhoneNumber)
+                .LastOrDefault(value => !string.IsNullOrWhiteSpace(value))
+                ?? legacyLocalPhoneNumber
+                ?? string.Empty,
             PhoneNumber = messages[^1].PhoneNumber,
             Messages = new ObservableCollection<SmsMessage>(messages)
         };
     }
 
-    public async Task DeleteConversationAsync(string localPhoneNumber, string phoneNumber)
+    public async Task DeleteConversationAsync(
+        string localSubscriptionId,
+        string phoneNumber,
+        string? legacyLocalPhoneNumber = null)
     {
         await _fileLock.WaitAsync();
+
         try
         {
             EnsureDirectoryExists();
-            var localKey = NormalizePhoneNumber(localPhoneNumber);
+
+            var subscriptionKey = NormalizeSubscriptionId(localSubscriptionId);
             var remoteKey = NormalizePhoneNumber(phoneNumber);
 
-            var conversationFile = GetConversationFilePath(localPhoneNumber, phoneNumber);
-            if (File.Exists(conversationFile))
-                File.Delete(conversationFile);
-
-            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
+            foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml").ToList())
             {
-                if (string.Equals(file, conversationFile, StringComparison.OrdinalIgnoreCase))
-                    continue;
+                XDocument doc;
+                try { doc = XDocument.Load(file); }
+                catch { continue; }
 
-                var doc = XDocument.Load(file);
                 var matches = doc.Descendants("Message")
-                    .Where(e =>
-                        NormalizePhoneNumber(e.Element("LocalPhoneNumber")?.Value ?? string.Empty) == localKey &&
-                        NormalizePhoneNumber(e.Element("PhoneNumber")?.Value ?? string.Empty) == remoteKey)
+                    .Where(element =>
+                    {
+                        var message = ParseMessageElement(element);
+                        return message != null &&
+                               MatchesLocalSubscription(
+                                   message,
+                                   subscriptionKey,
+                                   legacyLocalPhoneNumber) &&
+                               NormalizePhoneNumber(message.PhoneNumber) == remoteKey;
+                    })
                     .ToList();
 
-                if (matches.Count == 0) continue;
+                if (matches.Count == 0)
+                    continue;
+
                 foreach (var element in matches)
                     element.Remove();
-                await SaveDocumentAsync(doc, file);
+
+                if (!doc.Descendants("Message").Any() &&
+                    string.Equals(doc.Root?.Name.LocalName, "Conversation", StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(file);
+                }
+                else
+                {
+                    await SaveDocumentAsync(doc, file);
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete conversation for local {LocalPhoneNumber}, remote {PhoneNumber}",
-                localPhoneNumber, phoneNumber);
+            _logger.LogError(
+                ex,
+                "Failed to delete conversation for subscription {SubscriptionId}, remote {PhoneNumber}",
+                localSubscriptionId,
+                phoneNumber);
             throw;
         }
         finally
@@ -326,8 +346,116 @@ public class XmlMessageArchiveService : IMessageArchiveService
         }
     }
 
+    private string? FindMessageFile(Guid messageId)
+    {
+        foreach (var file in Directory.EnumerateFiles(_archiveDirectory, "*.xml"))
+        {
+            try
+            {
+                if (XDocument.Load(file)
+                    .Descendants("Message")
+                    .Any(e => e.Element("Id")?.Value == messageId.ToString()))
+                {
+                    return file;
+                }
+            }
+            catch
+            {
+                // Ignore malformed legacy archive files here; normal archive
+                // loading logs them separately.
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesLocalSubscription(
+        SmsMessage message,
+        string subscriptionKey,
+        string? legacyLocalPhoneNumber)
+    {
+        var messageSubscription = NormalizeSubscriptionId(message.LocalSubscriptionId);
+
+        if (!string.IsNullOrWhiteSpace(messageSubscription))
+            return messageSubscription == subscriptionKey;
+
+        // Legacy archives predate ICCID ownership. They can be associated with
+        // the current ICCID only when their old local phone number matches the
+        // profile's phone number.
+        var legacyKey = NormalizePhoneNumber(legacyLocalPhoneNumber ?? string.Empty);
+
+        return !string.IsNullOrWhiteSpace(legacyKey) &&
+               NormalizePhoneNumber(message.LocalPhoneNumber) == legacyKey;
+    }
+
+    private static XElement MessageToXml(SmsMessage msg)
+    {
+        var element = new XElement(
+            "Message",
+            new XElement("Id", msg.Id.ToString()),
+            new XElement("Direction", msg.Direction.ToString()),
+            new XElement("PhoneNumber", msg.PhoneNumber),
+            new XElement("LocalSubscriptionId", msg.LocalSubscriptionId),
+            new XElement("LocalPhoneNumber", msg.LocalPhoneNumber),
+            new XElement("Body", msg.Body),
+            new XElement("Timestamp", msg.Timestamp.ToString("O")),
+            new XElement("Status", msg.Status.ToString()),
+            new XElement("IsRead", msg.IsRead.ToString()));
+
+        if (msg.ModemMessageIndex.HasValue)
+            element.Add(new XElement("ModemMessageIndex", msg.ModemMessageIndex.Value));
+
+        if (msg.ModemReference != null)
+            element.Add(new XElement("ModemReference", msg.ModemReference));
+
+        if (msg.Error != null)
+            element.Add(new XElement("Error", msg.Error));
+
+        return element;
+    }
+
+    internal static IReadOnlyList<SmsMessage> ParseMessages(XDocument doc)
+        => doc.Descendants("Message")
+            .Select(ParseMessageElement)
+            .Where(message => message != null)
+            .Cast<SmsMessage>()
+            .ToList();
+
+    internal static SmsMessage? ParseMessageElement(XElement element)
+    {
+        try
+        {
+            return new SmsMessage
+            {
+                Id = Guid.Parse(element.Element("Id")!.Value),
+                Direction = Enum.Parse<SmsDirection>(element.Element("Direction")!.Value),
+                PhoneNumber = element.Element("PhoneNumber")?.Value ?? string.Empty,
+                LocalSubscriptionId =
+                    element.Element("LocalSubscriptionId")?.Value ?? string.Empty,
+                LocalPhoneNumber =
+                    element.Element("LocalPhoneNumber")?.Value ?? string.Empty,
+                Body = element.Element("Body")?.Value ?? string.Empty,
+                Timestamp = DateTimeOffset.Parse(element.Element("Timestamp")!.Value),
+                Status = Enum.Parse<SmsStatus>(element.Element("Status")!.Value),
+                IsRead = bool.Parse(element.Element("IsRead")?.Value ?? "false"),
+                ModemMessageIndex = element.Element("ModemMessageIndex") != null
+                    ? int.Parse(element.Element("ModemMessageIndex")!.Value)
+                    : null,
+                ModemReference = element.Element("ModemReference")?.Value,
+                Error = element.Element("Error")?.Value
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static XDocument LoadOrCreateConversationDocument(
-        string filePath, string localPhoneNumber, string phoneNumber)
+        string filePath,
+        string localSubscriptionId,
+        string localPhoneNumber,
+        string phoneNumber)
     {
         if (File.Exists(filePath))
         {
@@ -335,51 +463,97 @@ public class XmlMessageArchiveService : IMessageArchiveService
             catch { }
         }
 
-        return new XDocument(new XElement("Conversation",
-            new XAttribute("localPhoneNumber", localPhoneNumber),
-            new XAttribute("phoneNumber", phoneNumber),
-            new XAttribute("localKey", NormalizePhoneNumber(localPhoneNumber)),
-            new XAttribute("remoteKey", NormalizePhoneNumber(phoneNumber))));
+        return new XDocument(
+            new XElement(
+                "Conversation",
+                new XAttribute("localSubscriptionId", localSubscriptionId ?? string.Empty),
+                new XAttribute("localPhoneNumber", localPhoneNumber ?? string.Empty),
+                new XAttribute("phoneNumber", phoneNumber ?? string.Empty),
+                new XAttribute(
+                    "subscriptionKey",
+                    NormalizeSubscriptionId(localSubscriptionId)),
+                new XAttribute(
+                    "remoteKey",
+                    NormalizePhoneNumber(phoneNumber))));
     }
 
-    private string GetConversationFilePath(string localPhoneNumber, string phoneNumber)
+    private string GetConversationFilePath(
+        string localSubscriptionId,
+        string localPhoneNumber,
+        string phoneNumber)
     {
-        var localKey = NormalizePhoneNumber(localPhoneNumber);
         var remoteKey = NormalizePhoneNumber(phoneNumber);
-        var safeLocal = ToSafeKey(localKey, "unknown-local");
         var safeRemote = ToSafeKey(remoteKey, phoneNumber);
-        return Path.Combine(_archiveDirectory, $"conversation-{safeLocal}-{safeRemote}.xml");
+
+        if (!string.IsNullOrWhiteSpace(localSubscriptionId))
+        {
+            var normalized = NormalizeSubscriptionId(localSubscriptionId);
+            var hash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(normalized)))[..16];
+
+            return Path.Combine(
+                _archiveDirectory,
+                $"conversation-sub-{hash}-{safeRemote}.xml");
+        }
+
+        // Preserve compatibility for messages created before ICCID ownership.
+        var localKey = NormalizePhoneNumber(localPhoneNumber);
+        var safeLocal = ToSafeKey(localKey, "unknown-local");
+
+        return Path.Combine(
+            _archiveDirectory,
+            $"conversation-{safeLocal}-{safeRemote}.xml");
     }
 
     private static string ToSafeKey(string normalized, string fallback)
     {
-        var safe = new string(normalized.Where(char.IsDigit).ToArray());
+        var safe = new string((normalized ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
+
         if (!string.IsNullOrWhiteSpace(safe))
             return safe;
 
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fallback)))[..16];
+        return Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(fallback ?? string.Empty)))[..16];
     }
+
+    private static string NormalizeSubscriptionId(string value)
+        => new string((value ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
 
     private static string NormalizePhoneNumber(string phoneNumber)
     {
-        var trimmed = phoneNumber?.Trim() ?? string.Empty;
-        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
-        if (digits.StartsWith("00")) digits = digits[2..];
-        if (digits.StartsWith("0") && digits.Length >= 10) digits = "44" + digits[1..];
+        var digits = new string((phoneNumber ?? string.Empty)
+            .Where(char.IsDigit)
+            .ToArray());
+
+        if (digits.StartsWith("00"))
+            digits = digits[2..];
+
+        if (digits.StartsWith("0") && digits.Length >= 10)
+            digits = "44" + digits[1..];
+
         return digits;
     }
 
     private static async Task SaveDocumentAsync(XDocument doc, string filePath)
     {
         var tmpPath = filePath + ".tmp";
-        await using var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await Task.Run(() => doc.Save(stream));
-        stream.Close();
+
+        await using (var stream = new FileStream(
+                         tmpPath,
+                         FileMode.Create,
+                         FileAccess.Write,
+                         FileShare.None))
+        {
+            await Task.Run(() => doc.Save(stream));
+        }
+
         File.Move(tmpPath, filePath, overwrite: true);
     }
-
-    private string GetFilePath(DateOnly date)
-        => Path.Combine(_archiveDirectory, $"{date:yyyy-MM-dd}.xml");
 
     private void EnsureDirectoryExists()
     {
