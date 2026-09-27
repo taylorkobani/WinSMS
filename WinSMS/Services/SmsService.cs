@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
-using Windows.Networking.Connectivity;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
 
@@ -13,10 +11,7 @@ public class SmsService : ISmsService
     private readonly ILogger<SmsService> _logger;
     private readonly BlockedNumberService _blockedNumbers;
     private SmsMessageRegistration? _messageRegistration;
-    private DeviceWatcher? _smsDeviceWatcher;
-    private SmsDevice2? _observedSmsDevice;
     private readonly object _phoneNumberSync = new();
-    private readonly System.Threading.Timer _phoneNumberPollTimer;
     private string _currentPhoneNumber = string.Empty;
 
     public event EventHandler<SmsMessage>? MessageReceived;
@@ -24,8 +19,21 @@ public class SmsService : ISmsService
 
     public string GetCurrentPhoneNumber()
     {
-        lock (_phoneNumberSync)
-            return _currentPhoneNumber;
+        var number = SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
+        UpdateCurrentPhoneNumber(number);
+        return number;
+    }
+
+    public Task<string> SynchronizeCurrentPhoneNumberAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Deliberately use only the same default SmsDevice2 access path that
+        // WinSMS uses for sending. This method is called from the UI thread.
+        // Avoid device enumeration/FromId and mobile-broadband identity APIs,
+        // which proved disruptive on real modem hardware.
+        return Task.FromResult(GetCurrentPhoneNumber());
     }
 
     public SmsService(IMessageArchiveService archive, ILogger<SmsService> logger, BlockedNumberService blockedNumbers)
@@ -33,104 +41,7 @@ public class SmsService : ISmsService
         _archive = archive;
         _logger = logger;
         _blockedNumbers = blockedNumbers;
-
-        RefreshCurrentPhoneNumber();
-        InitializePhoneNumberMonitoring();
-        _phoneNumberPollTimer = new System.Threading.Timer(
-            _ => RefreshCurrentPhoneNumber(),
-            null,
-            TimeSpan.FromSeconds(5),
-            TimeSpan.FromSeconds(5));
-
         InitializeWindowsSmsReceiving();
-    }
-
-    public async Task<string> SynchronizeCurrentPhoneNumberAsync(CancellationToken cancellationToken = default)
-    {
-        // Windows can briefly expose the previous line identity while the
-        // mobile-broadband stack is settling. Re-enumerate the SMS devices and
-        // create fresh SmsDevice2 instances from their SMS device IDs instead
-        // of consulting MobileBroadbandModem APIs (which require restricted
-        // capabilities and are not appropriate for WinSMS).
-        var delays = new[]
-        {
-            TimeSpan.Zero,
-            TimeSpan.FromMilliseconds(350),
-            TimeSpan.FromMilliseconds(750),
-            TimeSpan.FromMilliseconds(1250),
-            TimeSpan.FromMilliseconds(2000)
-        };
-
-        foreach (var delay in delays)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (delay > TimeSpan.Zero)
-                await Task.Delay(delay, cancellationToken);
-
-            try
-            {
-                var defaultDevice = SmsDevice2.GetDefault();
-                var defaultDeviceId = defaultDevice?.DeviceId;
-
-                var devices = await DeviceInformation.FindAllAsync(SmsDevice2.GetDeviceSelector())
-                    .AsTask(cancellationToken);
-
-                SmsDevice2? freshDefault = null;
-                SmsDevice2? readyCandidate = null;
-
-                foreach (var info in devices)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    SmsDevice2? smsDevice;
-                    try
-                    {
-                        smsDevice = SmsDevice2.FromId(info.Id);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Could not open enumerated SMS device {DeviceId}.", info.Id);
-                        continue;
-                    }
-
-                    if (smsDevice == null)
-                        continue;
-
-                    if (!string.IsNullOrWhiteSpace(defaultDeviceId) &&
-                        string.Equals(smsDevice.DeviceId, defaultDeviceId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        freshDefault = smsDevice;
-                        break;
-                    }
-
-                    if (readyCandidate == null &&
-                        smsDevice.DeviceStatus == SmsDeviceStatus.Ready &&
-                        !string.IsNullOrWhiteSpace(smsDevice.AccountPhoneNumber))
-                    {
-                        readyCandidate = smsDevice;
-                    }
-                }
-
-                var selected = freshDefault ?? readyCandidate ?? defaultDevice;
-                if (selected != null)
-                {
-                    ObserveSmsDevice(selected);
-                    UpdateCurrentPhoneNumber(selected.AccountPhoneNumber);
-                }
-                else
-                {
-                    UpdateCurrentPhoneNumber(string.Empty);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Could not synchronize the current Windows SMS phone number.");
-                RefreshCurrentPhoneNumber();
-            }
-        }
-
-        return GetCurrentPhoneNumber();
     }
 
     public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(CancellationToken cancellationToken = default)
@@ -212,86 +123,6 @@ public class SmsService : ISmsService
 
     public Task MarkAsReadAsync(SmsMessage message) { message.IsRead = true; return _archive.UpdateMessageAsync(message); }
 
-    private void InitializePhoneNumberMonitoring()
-    {
-        try
-        {
-            _smsDeviceWatcher = DeviceInformation.CreateWatcher(SmsDevice2.GetDeviceSelector());
-            _smsDeviceWatcher.Added += (_, _) => RefreshCurrentPhoneNumber();
-            _smsDeviceWatcher.Removed += (_, _) => RefreshCurrentPhoneNumber();
-            _smsDeviceWatcher.Updated += (_, _) => RefreshCurrentPhoneNumber();
-            _smsDeviceWatcher.EnumerationCompleted += (_, _) => RefreshCurrentPhoneNumber();
-            _smsDeviceWatcher.Start();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not start the Windows SMS device watcher.");
-        }
-
-        try
-        {
-            NetworkInformation.NetworkStatusChanged += _ => RefreshCurrentPhoneNumber();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not subscribe to Windows network status changes.");
-        }
-    }
-
-    private void RefreshCurrentPhoneNumber()
-    {
-        try
-        {
-            var device = SmsDevice2.GetDefault();
-            var deviceChanged = !string.Equals(
-                _observedSmsDevice?.DeviceId,
-                device?.DeviceId,
-                StringComparison.OrdinalIgnoreCase);
-
-            ObserveSmsDevice(device);
-
-            if (device == null)
-            {
-                UpdateCurrentPhoneNumber(string.Empty);
-                return;
-            }
-
-            var number = device.AccountPhoneNumber?.Trim() ?? string.Empty;
-
-            // A newly selected SMS device with no reported number should not
-            // leave the previous line marked as current.
-            if (deviceChanged || !string.IsNullOrWhiteSpace(number))
-                UpdateCurrentPhoneNumber(number);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not refresh the current Windows SMS phone number.");
-        }
-    }
-
-    private void ObserveSmsDevice(SmsDevice2? device)
-    {
-        if (string.Equals(
-                _observedSmsDevice?.DeviceId,
-                device?.DeviceId,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            _observedSmsDevice = device ?? _observedSmsDevice;
-            return;
-        }
-
-        if (_observedSmsDevice != null)
-            _observedSmsDevice.DeviceStatusChanged -= OnSmsDeviceStatusChanged;
-
-        _observedSmsDevice = device;
-
-        if (_observedSmsDevice != null)
-            _observedSmsDevice.DeviceStatusChanged += OnSmsDeviceStatusChanged;
-    }
-
-    private void OnSmsDeviceStatusChanged(SmsDevice2 sender, object args)
-        => RefreshCurrentPhoneNumber();
-
     private void UpdateCurrentPhoneNumber(string? phoneNumber)
     {
         var value = phoneNumber?.Trim() ?? string.Empty;
@@ -306,17 +137,17 @@ public class SmsService : ISmsService
             }
             else if (!string.Equals(_currentPhoneNumber, value, StringComparison.Ordinal))
             {
-                // Keep the latest Windows representation (+44..., 07..., etc.)
-                // without raising a false identity-change event.
                 _currentPhoneNumber = value;
             }
         }
 
-        if (!changed)
-            return;
-
-        _logger.LogInformation("Current Windows SMS phone number changed to {PhoneNumber}", value);
-        CurrentPhoneNumberChanged?.Invoke(this, value);
+        if (changed)
+        {
+            _logger.LogInformation(
+                "Current Windows SMS phone number changed to {PhoneNumber}",
+                value);
+            CurrentPhoneNumberChanged?.Invoke(this, value);
+        }
     }
 
     private static bool PhoneNumbersEquivalent(string left, string right)
