@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
     private readonly SmsNotificationWindow _smsNotificationWindow;
     private bool _closeConfirmed;
     private bool _closeDialogOpen;
+    private bool _startupProfileSyncStarted;
 
     public MainWindow()
     {
@@ -75,7 +76,33 @@ public sealed partial class MainWindow : Window
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
         phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
 
-        _ = EnsureCurrentPhoneProfileAsync(smsService.GetCurrentPhoneNumber());
+        // Do not paint the previously cached profile before Windows has had a
+        // chance to refresh the current SMS identity for this process.
+        PhoneProfilePill.Visibility = Visibility.Collapsed;
+        Activated += MainWindow_Activated;
+    }
+
+    private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (_startupProfileSyncStarted)
+            return;
+
+        _startupProfileSyncStarted = true;
+        Activated -= MainWindow_Activated;
+
+        var smsService = App.Services.GetRequiredService<ISmsService>();
+        try
+        {
+            var phoneNumber = await smsService.SynchronizeCurrentPhoneNumberAsync();
+            await EnsureCurrentPhoneProfileAsync(phoneNumber);
+        }
+        catch
+        {
+            // If startup synchronization fails, still fall back to the best
+            // current value exposed by the SMS service.
+            await EnsureCurrentPhoneProfileAsync(smsService.GetCurrentPhoneNumber());
+        }
+
         UpdatePhoneProfile();
     }
 
