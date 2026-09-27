@@ -11,6 +11,7 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <ListView x:Name="MessageList" Grid.Column="0" ItemsSource="{x:Bind ViewModel.Conversations}"
                       SelectedItem="{x:Bind ViewModel.SelectedConversation, Mode=TwoWay}" SelectionMode="Single"
+                      Background="{ThemeResource LayerFillColorDefaultBrush}"
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:SmsConversation">
