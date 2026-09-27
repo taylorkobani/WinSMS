@@ -82,6 +82,7 @@ public partial class SettingsViewModel : ObservableObject
             }
 
             var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync();
+            lines.Add($"Mobile broadband interface(s): {(readyInfo.InterfaceNames.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.InterfaceNames))}");
             lines.Add($"Mobile broadband telephone number(s): {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
             if (!string.IsNullOrWhiteSpace(readyInfo.Error))
                 lines.Add($"Mobile broadband ready-info: {readyInfo.Error}");
@@ -138,6 +139,7 @@ public partial class SettingsViewModel : ObservableObject
             var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync();
             lines.Add("");
             lines.Add("Mobile broadband ready-info:");
+            lines.Add($"Interface(s): {(readyInfo.InterfaceNames.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.InterfaceNames))}");
             lines.Add($"Telephone number(s): {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
             if (!string.IsNullOrWhiteSpace(readyInfo.Error))
                 lines.Add($"Query status: {readyInfo.Error}");
