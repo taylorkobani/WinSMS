@@ -202,7 +202,12 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(async () =>
         {
             await EnsureCurrentSubscriptionProfileAsync(subscription);
-            UpdatePhoneProfile();
+
+            // Keep the title pill in its explicit "Switching…" state until the
+            // user-initiated switch operation has completed. Background
+            // subscription refresh events must not overwrite that status.
+            if (!_subscriptionSwitchInProgress)
+                UpdatePhoneProfile();
         });
     }
 
@@ -553,7 +558,7 @@ public sealed partial class MainWindow : Window
 
         _subscriptionSwitchInProgress = true;
         PhoneProfilePill.IsEnabled = false;
-        PhoneProfileName.Text = $"Switching to {request.Label}…";
+        PhoneProfileName.Text = "Switching…";
 
         try
         {
