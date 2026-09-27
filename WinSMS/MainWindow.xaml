@@ -23,7 +23,7 @@
                 <TextBlock Text="WinSMS"
                            VerticalAlignment="Center"
                            FontWeight="SemiBold"/>
-                <Button x:Name="PhoneProfilePill"
+                <Button x:Name="PhoneProfileButton"
                         Padding="10,3"
                         CornerRadius="12"
                         BorderThickness="0"
