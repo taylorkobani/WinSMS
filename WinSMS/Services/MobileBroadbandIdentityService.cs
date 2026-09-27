@@ -304,76 +304,101 @@ public sealed class MobileBroadbandIdentityService
         bool useEsim,
         CancellationToken cancellationToken = default)
     {
-        var readyInfo = await GetReadyInfoAsync(cancellationToken);
-
-        var target = readyInfo.Slots
-            .Where(slot => slot.IsEsim == useEsim)
-            .OrderBy(slot => slot.SlotIndex)
-            .FirstOrDefault();
-
-        if (target == null)
-        {
-            return new MobileBroadbandSwitchResult(
-                false,
-                string.Empty,
-                -1,
-                false,
-                useEsim
-                    ? "Windows did not report an eSIM slot that WinSMS can activate."
-                    : "Windows did not report a physical SIM slot that WinSMS can activate.");
-        }
-
-        if (string.IsNullOrWhiteSpace(target.InterfaceName))
-        {
-            return new MobileBroadbandSwitchResult(
-                false,
-                string.Empty,
-                target.SlotIndex,
-                false,
-                "Windows did not report the mobile broadband interface for this SIM slot.");
-        }
-
-        var normal = await RunNetshAsync(
+        // Use only interface + slot-status queries here. The full ready-info
+        // diagnostic is intentionally avoided because some modem drivers reject
+        // readyinfo and it should not delay a user-initiated slot switch.
+        var interfacesResult = await RunNetshAsync(
             cancellationToken,
             "mbn",
-            "set",
-            "slotmapping",
-            $"interface={target.InterfaceName}",
-            $"slotindex={target.SlotIndex}");
+            "show",
+            "interfaces");
 
-        if (normal.Success)
+        var interfaceNames = ParseInterfaceNames(interfacesResult.Output).ToList();
+
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            return new MobileBroadbandSwitchResult(
-                true,
-                target.InterfaceName,
-                target.SlotIndex,
-                false,
-                null);
+            if (nic.NetworkInterfaceType is
+                NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2)
+            {
+                if (!interfaceNames.Contains(nic.Name, StringComparer.OrdinalIgnoreCase))
+                    interfaceNames.Add(nic.Name);
+            }
         }
 
-        var elevated = await RunElevatedNetshAsync(
-            cancellationToken,
-            "mbn",
-            "set",
-            "slotmapping",
-            $"interface={target.InterfaceName}",
-            $"slotindex={target.SlotIndex}");
+        foreach (var interfaceName in interfaceNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        return elevated.Success
-            ? new MobileBroadbandSwitchResult(
-                true,
-                target.InterfaceName,
-                target.SlotIndex,
-                true,
-                null)
-            : new MobileBroadbandSwitchResult(
-                false,
-                target.InterfaceName,
-                target.SlotIndex,
-                elevated.WasElevated,
-                elevated.Error
-                    ?? normal.Error
-                    ?? $"Windows rejected slot mapping with exit code {normal.ExitCode}.");
+            var slotStatus = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "show",
+                "slotstatus",
+                $"interface={interfaceName}");
+
+            var targetSlot = ParseSlotIndexes(slotStatus.Output)
+                .Select(index => new
+                {
+                    Index = index,
+                    State = GetSlotStateText(slotStatus.Output, index)
+                })
+                .FirstOrDefault(slot =>
+                    slot.State.Contains("esim", StringComparison.OrdinalIgnoreCase) == useEsim);
+
+            if (targetSlot == null)
+                continue;
+
+            var normal = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "set",
+                "slotmapping",
+                $"interface={interfaceName}",
+                $"slotindex={targetSlot.Index}");
+
+            if (normal.Success)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    false,
+                    null);
+            }
+
+            var elevated = await RunElevatedNetshAsync(
+                cancellationToken,
+                "mbn",
+                "set",
+                "slotmapping",
+                $"interface={interfaceName}",
+                $"slotindex={targetSlot.Index}");
+
+            return elevated.Success
+                ? new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    true,
+                    null)
+                : new MobileBroadbandSwitchResult(
+                    false,
+                    interfaceName,
+                    targetSlot.Index,
+                    elevated.WasElevated,
+                    elevated.Error
+                        ?? normal.Error
+                        ?? $"Windows rejected slot mapping with exit code {normal.ExitCode}.");
+        }
+
+        return new MobileBroadbandSwitchResult(
+            false,
+            string.Empty,
+            -1,
+            false,
+            useEsim
+                ? "Windows did not report an eSIM slot that WinSMS can activate."
+                : "Windows did not report a physical SIM slot that WinSMS can activate.");
     }
 
     internal static IReadOnlyList<string> ParseInterfaceNames(string output)
