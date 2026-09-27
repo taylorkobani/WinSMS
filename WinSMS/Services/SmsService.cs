@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
+using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
+using Windows.Networking.Connectivity;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
 
@@ -11,17 +13,35 @@ public class SmsService : ISmsService
     private readonly ILogger<SmsService> _logger;
     private readonly BlockedNumberService _blockedNumbers;
     private SmsMessageRegistration? _messageRegistration;
+    private DeviceWatcher? _smsDeviceWatcher;
+    private SmsDevice2? _observedSmsDevice;
+    private readonly object _phoneNumberSync = new();
+    private readonly System.Threading.Timer _phoneNumberPollTimer;
+    private string _currentPhoneNumber = string.Empty;
 
     public event EventHandler<SmsMessage>? MessageReceived;
+    public event EventHandler<string>? CurrentPhoneNumberChanged;
 
     public string GetCurrentPhoneNumber()
-        => SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
+    {
+        lock (_phoneNumberSync)
+            return _currentPhoneNumber;
+    }
 
     public SmsService(IMessageArchiveService archive, ILogger<SmsService> logger, BlockedNumberService blockedNumbers)
     {
         _archive = archive;
         _logger = logger;
         _blockedNumbers = blockedNumbers;
+
+        RefreshCurrentPhoneNumber();
+        InitializePhoneNumberMonitoring();
+        _phoneNumberPollTimer = new System.Threading.Timer(
+            _ => RefreshCurrentPhoneNumber(),
+            null,
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(5));
+
         InitializeWindowsSmsReceiving();
     }
 
@@ -47,6 +67,8 @@ public class SmsService : ISmsService
     {
         var device = SmsDevice2.GetDefault()
             ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
+
+        UpdateCurrentPhoneNumber(device.AccountPhoneNumber);
 
         var message = new SmsMessage
         {
@@ -101,6 +123,116 @@ public class SmsService : ISmsService
     }
 
     public Task MarkAsReadAsync(SmsMessage message) { message.IsRead = true; return _archive.UpdateMessageAsync(message); }
+
+    private void InitializePhoneNumberMonitoring()
+    {
+        try
+        {
+            _smsDeviceWatcher = DeviceInformation.CreateWatcher(SmsDevice2.GetDeviceSelector());
+            _smsDeviceWatcher.Added += (_, _) => RefreshCurrentPhoneNumber();
+            _smsDeviceWatcher.Removed += (_, _) => RefreshCurrentPhoneNumber();
+            _smsDeviceWatcher.Updated += (_, _) => RefreshCurrentPhoneNumber();
+            _smsDeviceWatcher.EnumerationCompleted += (_, _) => RefreshCurrentPhoneNumber();
+            _smsDeviceWatcher.Start();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not start the Windows SMS device watcher.");
+        }
+
+        try
+        {
+            NetworkInformation.NetworkStatusChanged += _ => RefreshCurrentPhoneNumber();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not subscribe to Windows network status changes.");
+        }
+    }
+
+    private void RefreshCurrentPhoneNumber()
+    {
+        try
+        {
+            var device = SmsDevice2.GetDefault();
+            var deviceChanged = !string.Equals(
+                _observedSmsDevice?.DeviceId,
+                device?.DeviceId,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (deviceChanged)
+            {
+                if (_observedSmsDevice != null)
+                    _observedSmsDevice.DeviceStatusChanged -= OnSmsDeviceStatusChanged;
+
+                _observedSmsDevice = device;
+
+                if (_observedSmsDevice != null)
+                    _observedSmsDevice.DeviceStatusChanged += OnSmsDeviceStatusChanged;
+            }
+
+            if (device == null)
+            {
+                UpdateCurrentPhoneNumber(string.Empty);
+                return;
+            }
+
+            var number = device.AccountPhoneNumber?.Trim() ?? string.Empty;
+
+            // A newly selected SMS device with no reported number should not
+            // leave the previous line marked as current.
+            if (deviceChanged || !string.IsNullOrWhiteSpace(number))
+                UpdateCurrentPhoneNumber(number);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not refresh the current Windows SMS phone number.");
+        }
+    }
+
+    private void OnSmsDeviceStatusChanged(SmsDevice2 sender, object args)
+        => RefreshCurrentPhoneNumber();
+
+    private void UpdateCurrentPhoneNumber(string? phoneNumber)
+    {
+        var value = phoneNumber?.Trim() ?? string.Empty;
+        var changed = false;
+
+        lock (_phoneNumberSync)
+        {
+            if (!PhoneNumbersEquivalent(_currentPhoneNumber, value))
+            {
+                _currentPhoneNumber = value;
+                changed = true;
+            }
+            else if (!string.Equals(_currentPhoneNumber, value, StringComparison.Ordinal))
+            {
+                // Keep the latest Windows representation (+44..., 07..., etc.)
+                // without raising a false identity-change event.
+                _currentPhoneNumber = value;
+            }
+        }
+
+        if (!changed)
+            return;
+
+        _logger.LogInformation("Current Windows SMS phone number changed to {PhoneNumber}", value);
+        CurrentPhoneNumberChanged?.Invoke(this, value);
+    }
+
+    private static bool PhoneNumbersEquivalent(string left, string right)
+        => string.Equals(
+            NormalizePhoneNumber(left),
+            NormalizePhoneNumber(right),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizePhoneNumber(string phoneNumber)
+    {
+        var digits = new string((phoneNumber ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("00")) digits = digits[2..];
+        if (digits.StartsWith("0") && digits.Length >= 10) digits = "44" + digits[1..];
+        return digits;
+    }
 
     private void InitializeWindowsSmsReceiving()
     {
@@ -165,6 +297,8 @@ public class SmsService : ISmsService
             var localPhoneNumber = text.To?.Trim();
             if (string.IsNullOrWhiteSpace(localPhoneNumber))
                 localPhoneNumber = GetCurrentPhoneNumber();
+
+            UpdateCurrentPhoneNumber(localPhoneNumber);
 
             var message = new SmsMessage
             {
