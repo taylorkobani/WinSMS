@@ -17,7 +17,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Persistent local archive** stores conversations as XML files.
 - **Number blocking** discards future incoming messages from blocked numbers before WinSMS archives or displays them.
 - **SIM/eSIM profiles** are keyed by ICCID and can store a WinSMS name, colour, Windows connection-profile name, SIM type, and optional phone number.
-- **eSIM-aware number detection** supplements `SmsDevice2.AccountPhoneNumber` with Windows mobile-broadband ready information when the SMS API reports a stale or missing number after a SIM/eSIM switch.
+- **ICCID-based SIM/eSIM detection** reads fresh Windows Mobile Broadband subscriber identity and treats phone number as optional metadata, avoiding stale `SmsDevice2.AccountPhoneNumber` values after a SIM/eSIM switch.
 - **System tray support** keeps WinSMS running when the main window is minimized.
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
 - **Exit confirmation** prevents accidental application shutdown.
