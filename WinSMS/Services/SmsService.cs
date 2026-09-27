@@ -88,7 +88,7 @@ public class SmsService : ISmsService
         var device = SmsDevice2.GetDefault()
             ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
 
-        var localPhoneNumber = GetCurrentPhoneNumber();
+        var localPhoneNumber = await SynchronizeCurrentPhoneNumberAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(localPhoneNumber))
             localPhoneNumber = device.AccountPhoneNumber?.Trim() ?? string.Empty;
 
