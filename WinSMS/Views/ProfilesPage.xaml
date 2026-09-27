@@ -7,9 +7,14 @@
 
     <ScrollViewer Margin="16" HorizontalContentAlignment="Stretch">
         <StackPanel Spacing="16">
-            <TextBlock Text="Profiles" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8"/>
-            <TextBlock Text="Profiles are stored separately for each phone number."
-                       Opacity="0.7"/>
+            <TextBlock Text="Profiles"
+                       Style="{StaticResource TitleTextBlockStyle}"
+                       Margin="0,0,0,8"/>
+
+            <TextBlock
+                Text="Profiles are identified by SIM/eSIM ICCID. The phone number is metadata and is optional."
+                Opacity="0.7"
+                TextWrapping="Wrap"/>
 
             <ItemsControl ItemsSource="{x:Bind ViewModel.Profiles, Mode=OneWay}">
                 <ItemsControl.ItemTemplate>
@@ -20,54 +25,124 @@
                                 BorderThickness="1"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                            <Grid ColumnSpacing="12" RowSpacing="10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="180"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="220"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
+                            <StackPanel Spacing="14">
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind PhoneNumber}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="CURRENT"
+                                    <Border Grid.Column="0"
+                                            Padding="8,3"
+                                            CornerRadius="10"
+                                            Background="{ThemeResource AccentFillColorSecondaryBrush}">
+                                        <TextBlock Text="{x:Bind SimTypeLabel}"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="12"/>
+                                    </Border>
+
+                                    <TextBlock Grid.Column="1"
+                                               Text="CURRENT"
+                                               Margin="4,0,0,0"
+                                               VerticalAlignment="Center"
                                                FontSize="11"
                                                FontWeight="Bold"
                                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                                Visibility="{x:Bind IsCurrent, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                </StackPanel>
+                                </Grid>
 
-                                <TextBox Grid.Column="1"
-                                         Header="Profile name"
-                                         PlaceholderText="e.g. Personal, Work"
-                                         Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Grid ColumnSpacing="20" RowSpacing="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
 
-                                <ComboBox Grid.Column="2"
-                                          Header="Color"
-                                          ItemsSource="{Binding DataContext.ProfileColors, ElementName=RootPage}"
-                                          SelectedItem="{Binding Color, Mode=TwoWay}"
-                                          HorizontalAlignment="Stretch">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <Ellipse Width="16" Height="16" Loaded="ProfileColorSwatch_Loaded"/>
-                                                <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
+                                    <TextBlock Grid.Row="0"
+                                               Grid.Column="0"
+                                               Text="ICCID"
+                                               Opacity="0.65"/>
+                                    <TextBlock Grid.Row="0"
+                                               Grid.Column="1"
+                                               Text="{x:Bind IccId}"
+                                               FontFamily="Consolas"
+                                               TextWrapping="Wrap"/>
 
-                                <Button Grid.Column="3"
-                                        VerticalAlignment="Bottom"
-                                        Content="Save"
-                                        Click="SaveProfileButton_Click"
-                                        Tag="{Binding}"
-                                        Style="{StaticResource AccentButtonStyle}"/>
-                            </Grid>
+                                    <TextBlock Grid.Row="1"
+                                               Grid.Column="0"
+                                               Text="Subscriber ID"
+                                               Opacity="0.65"/>
+                                    <TextBlock Grid.Row="1"
+                                               Grid.Column="1"
+                                               Text="{x:Bind SubscriberIdDisplay}"
+                                               FontFamily="Consolas"
+                                               TextWrapping="Wrap"/>
+
+                                    <TextBlock Grid.Row="2"
+                                               Grid.Column="0"
+                                               Text="Windows profile"
+                                               Opacity="0.65"/>
+                                    <TextBlock Grid.Row="2"
+                                               Grid.Column="1"
+                                               Text="{x:Bind WindowsProfileDisplay}"
+                                               TextWrapping="Wrap"/>
+                                </Grid>
+
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="220"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBox Grid.Column="0"
+                                             Header="WinSMS profile name"
+                                             PlaceholderText="e.g. Personal, Work"
+                                             Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBox Header="Phone number"
+                                                 PlaceholderText="+44..."
+                                                 IsReadOnly="{x:Bind PhoneNumberIsReadOnly}"
+                                                 Text="{x:Bind PhoneNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="{x:Bind PhoneNumberSourceText}"
+                                                   FontSize="11"
+                                                   Opacity="0.65"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+
+                                    <ComboBox Grid.Column="2"
+                                              Header="Color"
+                                              ItemsSource="{Binding DataContext.ProfileColors, ElementName=RootPage}"
+                                              SelectedItem="{Binding Color, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Ellipse Width="16"
+                                                             Height="16"
+                                                             Loaded="ProfileColorSwatch_Loaded"/>
+                                                    <TextBlock Text="{Binding}"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+
+                                    <Button Grid.Column="3"
+                                            VerticalAlignment="Bottom"
+                                            Content="Save"
+                                            Click="SaveProfileButton_Click"
+                                            Tag="{Binding}"
+                                            Style="{StaticResource AccentButtonStyle}"/>
+                                </Grid>
+                            </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
