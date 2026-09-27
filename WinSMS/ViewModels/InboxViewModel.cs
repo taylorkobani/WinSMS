@@ -33,6 +33,9 @@ public partial class InboxViewModel : ObservableObject
     private ObservableCollection<SmsConversation> _conversations = new();
 
     [ObservableProperty]
+    private bool _hasConversations;
+
+    [ObservableProperty]
     private SmsConversation? _selectedConversation;
 
     [ObservableProperty]
@@ -90,6 +93,7 @@ public partial class InboxViewModel : ObservableObject
             {
                 StatusMessage = "Windows did not provide a phone number for the current SMS account.";
                 Conversations.Clear();
+                HasConversations = false;
                 SelectedConversation = null;
                 return;
             }
@@ -98,6 +102,7 @@ public partial class InboxViewModel : ObservableObject
             Conversations.Clear();
             foreach (var conversation in conversations)
                 Conversations.Add(conversation);
+            HasConversations = Conversations.Count > 0;
             SelectedConversation = selectedNumber == null
                 ? Conversations.FirstOrDefault()
                 : Conversations.FirstOrDefault(c =>
@@ -188,6 +193,7 @@ public partial class InboxViewModel : ObservableObject
             await _archive.DeleteConversationAsync(conversation.LocalPhoneNumber, number);
             var wasSelected = ReferenceEquals(SelectedConversation, conversation);
             Conversations.Remove(conversation);
+            HasConversations = Conversations.Count > 0;
 
             if (wasSelected)
             {
@@ -239,6 +245,7 @@ public partial class InboxViewModel : ObservableObject
                 };
                 conversation.Messages.Add(message);
                 Conversations.Insert(0, conversation);
+                HasConversations = true;
 
                 if (SelectedConversation == null)
                     SelectedConversation = conversation;
