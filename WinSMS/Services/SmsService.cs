@@ -271,12 +271,13 @@ public class SmsService : ISmsService
                 switchResult.Error ?? "Windows rejected the SIM/eSIM switch.");
         }
 
-        // The netsh command changes the modem slot mapping synchronously, but
-        // the WWAN service and carrier registration update asynchronously.
-        // Keep the old WinSMS identity until fresh MBN subscriber data confirms
-        // that the requested subscription is actually active.
-        var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(45);
-        Exception? lastError = null;
+        // The slot mapping itself has already been accepted/verified by
+        // MobileBroadbandIdentityService. Windows can take a little longer to
+        // refresh subscriber metadata (especially ICCID) after the mapping
+        // changes, so wait for fresh identity data but do not turn a successful
+        // Windows slot change into a false UI error if metadata lags behind.
+        var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(20);
+        CellularSubscription? latestSubscription = null;
 
         while (DateTimeOffset.UtcNow < timeoutAt)
         {
@@ -291,15 +292,19 @@ public class SmsService : ISmsService
 
                 if (subscription != null)
                 {
+                    latestSubscription = subscription;
                     var activeKey = NormalizeIccId(subscription.IccId);
 
-                    var targetConfirmed =
-                        !string.IsNullOrWhiteSpace(targetKey)
-                            ? activeKey == targetKey
-                            : !string.IsNullOrWhiteSpace(activeKey) &&
-                              activeKey != previousKey;
+                    var iccidConfirmed =
+                        !string.IsNullOrWhiteSpace(targetKey) &&
+                        activeKey == targetKey;
 
-                    if (targetConfirmed)
+                    var typeConfirmed =
+                        subscription.IsEsim == useEsim &&
+                        (!string.IsNullOrWhiteSpace(activeKey) &&
+                         activeKey != previousKey);
+
+                    if (iccidConfirmed || typeConfirmed)
                     {
                         _logger.LogInformation(
                             "Cellular slot switch confirmed. ICCID={IccId}; Type={Type}",
@@ -312,19 +317,22 @@ public class SmsService : ISmsService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                lastError = ex;
                 _logger.LogDebug(
                     ex,
-                    "Waiting for Windows to expose the switched cellular subscription.");
+                    "Waiting for Windows to refresh the switched cellular subscription.");
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
         }
 
-        throw new TimeoutException(
-            lastError == null
-                ? "Windows accepted the SIM/eSIM switch, but the new subscription did not become active within 45 seconds."
-                : $"Windows accepted the SIM/eSIM switch, but activation could not be confirmed: {lastError.Message}");
+        // The requested slot mapping is already active at this point. Some WWAN
+        // drivers keep returning stale subscriber metadata for a while. Return
+        // the latest known subscription and let the normal background
+        // synchronization refresh ICCID/profile metadata when Windows catches up.
+        _logger.LogWarning(
+            "Cellular slot mapping succeeded, but subscriber metadata did not refresh within 20 seconds.");
+
+        return latestSubscription ?? GetCurrentSubscription();
     }
 
     public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(
