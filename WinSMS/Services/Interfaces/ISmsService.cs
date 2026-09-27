@@ -22,6 +22,11 @@ public interface ISmsService
     Task<CellularSubscription?> SynchronizeCurrentSubscriptionAsync(
         CancellationToken cancellationToken = default);
 
+    Task<CellularSubscription?> SwitchCurrentSubscriptionAsync(
+        bool useEsim,
+        string? targetIccId = null,
+        CancellationToken cancellationToken = default);
+
     event EventHandler<SmsMessage>? MessageReceived;
     event EventHandler<CellularSubscription>? CurrentSubscriptionChanged;
 }
