@@ -67,6 +67,7 @@ public partial class InboxViewModel : ObservableObject
 
         _smsService.MessageReceived += OnMessageReceived;
         _smsService.CurrentSubscriptionChanged += OnCurrentSubscriptionChanged;
+        _phoneProfiles.ProfilesChanged += OnProfilesChanged;
     }
 
     public Task LoadAsync() => RefreshAsync();
@@ -257,6 +258,12 @@ public partial class InboxViewModel : ObservableObject
     {
         _dispatcher.TryEnqueue(async () => await RefreshAsync());
     }
+
+    private void OnProfilesChanged(object? sender, EventArgs e)
+    {
+        _dispatcher.TryEnqueue(async () => await RefreshAsync());
+    }
+
 
     private void OnMessageReceived(object? sender, SmsMessage message)
     {
