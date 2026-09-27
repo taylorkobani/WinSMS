@@ -12,6 +12,13 @@ namespace WinSMS.Services;
 /// </summary>
 public sealed class MobileBroadbandIdentityService
 {
+    private readonly LegacyMbnSubscriberService _legacyMbn;
+
+    public MobileBroadbandIdentityService(LegacyMbnSubscriberService legacyMbn)
+    {
+        _legacyMbn = legacyMbn;
+    }
+
     private static readonly Regex PhoneLikeValue = new(
         @"\+?\d[\d\s().-]{5,}\d",
         RegexOptions.Compiled);
@@ -31,9 +38,33 @@ public sealed class MobileBroadbandIdentityService
         var errors = new List<string>();
         var interfaceNames = new List<string>();
         var slotResults = new List<MobileBroadbandSlotInfo>();
+        IReadOnlyList<LegacyMbnSubscriberInfo> legacySubscribers = Array.Empty<LegacyMbnSubscriberInfo>();
 
         try
         {
+            try
+            {
+                legacySubscribers = await Task.Run(
+                    () => _legacyMbn.GetSubscribers(),
+                    cancellationToken);
+
+                diagnostics.AppendLine("Win32 MBN subscriber information:");
+                foreach (var subscriber in legacySubscribers)
+                {
+                    diagnostics.AppendLine($"Interface ID: {subscriber.InterfaceId}");
+                    diagnostics.AppendLine($"SIM ICCID: {(string.IsNullOrWhiteSpace(subscriber.SimIccId) ? "(not reported)" : subscriber.SimIccId)}");
+                    diagnostics.AppendLine($"Subscriber ID: {(string.IsNullOrWhiteSpace(subscriber.SubscriberId) ? "(not reported)" : subscriber.SubscriberId)}");
+                    diagnostics.AppendLine($"Telephone number(s): {(subscriber.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", subscriber.TelephoneNumbers))}");
+                    if (!string.IsNullOrWhiteSpace(subscriber.Error))
+                        diagnostics.AppendLine($"MBN API error: {subscriber.Error}");
+                }
+
+                diagnostics.AppendLine();
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Win32 MBN API: {ex.Message}");
+            }
             var interfacesResult = await RunNetshAsync(
                 cancellationToken, "mbn", "show", "interfaces");
 
@@ -55,11 +86,17 @@ public sealed class MobileBroadbandIdentityService
 
             if (interfaceNames.Count == 0)
             {
+                var legacyNumbersOnly = legacySubscribers
+                    .SelectMany(subscriber => subscriber.TelephoneNumbers)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
                 return new MobileBroadbandReadyInfo(
-                    Array.Empty<string>(),
+                    legacyNumbersOnly,
                     Array.Empty<string>(),
                     Array.Empty<MobileBroadbandSlotInfo>(),
                     null,
+                    legacySubscribers,
                     diagnostics.ToString(),
                     "Windows did not report a mobile broadband interface.");
             }
@@ -150,7 +187,28 @@ public sealed class MobileBroadbandIdentityService
             }
 
             var selected = slotResults.FirstOrDefault(slot => slot.IsSelected);
-            var preferredNumbers = selected?.TelephoneNumbers?.ToList() ?? new List<string>();
+
+            // A freshly enumerated Win32 MBN interface is the most direct
+            // subscriber source Windows exposes to ordinary desktop apps. Use
+            // its telephone numbers before the netsh fallback. Microsoft
+            // specifically warns not to cache IMbnInterface objects because
+            // cached functional objects can return stale subscriber data.
+            var preferredNumbers = legacySubscribers
+                .Where(subscriber => string.IsNullOrWhiteSpace(subscriber.Error))
+                .SelectMany(subscriber => subscriber.TelephoneNumbers)
+                .Where(number => !string.IsNullOrWhiteSpace(number))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (selected != null)
+            {
+                foreach (var selectedNumber in selected.TelephoneNumbers.Reverse())
+                {
+                    var normalized = Normalize(selectedNumber);
+                    preferredNumbers.RemoveAll(existing => Normalize(existing) == normalized);
+                    preferredNumbers.Insert(0, selectedNumber);
+                }
+            }
 
             foreach (var slot in slotResults)
             {
@@ -169,6 +227,7 @@ public sealed class MobileBroadbandIdentityService
                 interfaceNames,
                 slotResults,
                 selected,
+                legacySubscribers,
                 diagnostics.ToString(),
                 errors.Count == 0 ? null : string.Join(" | ", errors));
         }
@@ -179,10 +238,11 @@ public sealed class MobileBroadbandIdentityService
         catch (Exception ex)
         {
             return new MobileBroadbandReadyInfo(
-                Array.Empty<string>(),
+                legacySubscribers.SelectMany(subscriber => subscriber.TelephoneNumbers).ToList(),
                 interfaceNames,
                 slotResults,
                 slotResults.FirstOrDefault(slot => slot.IsSelected),
+                legacySubscribers,
                 diagnostics.ToString(),
                 ex.Message);
         }
@@ -385,5 +445,6 @@ public sealed record MobileBroadbandReadyInfo(
     IReadOnlyList<string> InterfaceNames,
     IReadOnlyList<MobileBroadbandSlotInfo> Slots,
     MobileBroadbandSlotInfo? SelectedSlot,
+    IReadOnlyList<LegacyMbnSubscriberInfo> LegacySubscribers,
     string RawOutput,
     string? Error);
