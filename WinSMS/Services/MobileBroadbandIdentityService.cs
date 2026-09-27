@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Text;
@@ -299,6 +300,82 @@ public sealed class MobileBroadbandIdentityService
         }
     }
 
+    public async Task<MobileBroadbandSwitchResult> SwitchSlotAsync(
+        bool useEsim,
+        CancellationToken cancellationToken = default)
+    {
+        var readyInfo = await GetReadyInfoAsync(cancellationToken);
+
+        var target = readyInfo.Slots
+            .Where(slot => slot.IsEsim == useEsim)
+            .OrderBy(slot => slot.SlotIndex)
+            .FirstOrDefault();
+
+        if (target == null)
+        {
+            return new MobileBroadbandSwitchResult(
+                false,
+                string.Empty,
+                -1,
+                false,
+                useEsim
+                    ? "Windows did not report an eSIM slot that WinSMS can activate."
+                    : "Windows did not report a physical SIM slot that WinSMS can activate.");
+        }
+
+        if (string.IsNullOrWhiteSpace(target.InterfaceName))
+        {
+            return new MobileBroadbandSwitchResult(
+                false,
+                string.Empty,
+                target.SlotIndex,
+                false,
+                "Windows did not report the mobile broadband interface for this SIM slot.");
+        }
+
+        var normal = await RunNetshAsync(
+            cancellationToken,
+            "mbn",
+            "set",
+            "slotmapping",
+            $"interface={target.InterfaceName}",
+            $"slotindex={target.SlotIndex}");
+
+        if (normal.Success)
+        {
+            return new MobileBroadbandSwitchResult(
+                true,
+                target.InterfaceName,
+                target.SlotIndex,
+                false,
+                null);
+        }
+
+        var elevated = await RunElevatedNetshAsync(
+            cancellationToken,
+            "mbn",
+            "set",
+            "slotmapping",
+            $"interface={target.InterfaceName}",
+            $"slotindex={target.SlotIndex}");
+
+        return elevated.Success
+            ? new MobileBroadbandSwitchResult(
+                true,
+                target.InterfaceName,
+                target.SlotIndex,
+                true,
+                null)
+            : new MobileBroadbandSwitchResult(
+                false,
+                target.InterfaceName,
+                target.SlotIndex,
+                elevated.WasElevated,
+                elevated.Error
+                    ?? normal.Error
+                    ?? $"Windows rejected slot mapping with exit code {normal.ExitCode}.");
+    }
+
     internal static IReadOnlyList<string> ParseInterfaceNames(string output)
         => InterfaceNameLine.Matches(output ?? string.Empty)
             .Select(match => match.Groups[1].Value.Trim())
@@ -440,6 +517,62 @@ public sealed class MobileBroadbandIdentityService
             diagnostics.AppendLine($"stderr: {result.Error}");
     }
 
+    private static async Task<ElevatedNetshResult> RunElevatedNetshAsync(
+        CancellationToken cancellationToken,
+        params string[] arguments)
+    {
+        var netsh = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "netsh.exe");
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = netsh,
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            using var process = new Process { StartInfo = startInfo };
+            if (!process.Start())
+            {
+                return new ElevatedNetshResult(
+                    false,
+                    true,
+                    "Windows could not start the elevated SIM/eSIM switch command.");
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+
+            return process.ExitCode == 0
+                ? new ElevatedNetshResult(true, true, null)
+                : new ElevatedNetshResult(
+                    false,
+                    true,
+                    $"Elevated netsh exited with code {process.ExitCode}.");
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return new ElevatedNetshResult(
+                false,
+                true,
+                "The SIM/eSIM switch was cancelled at the Windows administrator prompt.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ElevatedNetshResult(false, true, ex.Message);
+        }
+    }
+
     private static async Task<NetshResult> RunNetshAsync(
         CancellationToken cancellationToken,
         params string[] arguments)
@@ -504,6 +637,11 @@ public sealed class MobileBroadbandIdentityService
     {
         public bool Success => ExitCode == 0;
     }
+
+    private sealed record ElevatedNetshResult(
+        bool Success,
+        bool WasElevated,
+        string? Error);
 }
 
 public sealed record MobileBroadbandSlotInfo(
@@ -525,4 +663,12 @@ public sealed record MobileBroadbandReadyInfo(
     IReadOnlyList<LegacyMbnSubscriberInfo> LegacySubscribers,
     string WindowsProfileName,
     string RawOutput,
+    string? Error);
+
+
+public sealed record MobileBroadbandSwitchResult(
+    bool Success,
+    string InterfaceName,
+    int SlotIndex,
+    bool UsedElevation,
     string? Error);
