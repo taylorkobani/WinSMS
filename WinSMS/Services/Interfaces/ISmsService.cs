@@ -22,10 +22,6 @@ public interface ISmsService
     Task<CellularSubscription?> SynchronizeCurrentSubscriptionAsync(
         CancellationToken cancellationToken = default);
 
-    Task<CellularSubscription?> SwitchCurrentSubscriptionAsync(
-        string targetIccId,
-        CancellationToken cancellationToken = default);
-
     event EventHandler<SmsMessage>? MessageReceived;
     event EventHandler<CellularSubscription>? CurrentSubscriptionChanged;
 }
