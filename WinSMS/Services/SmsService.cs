@@ -77,22 +77,19 @@ public class SmsService : ISmsService
 
         var iccId = NormalizeIccId(subscriber.SimIccId);
         var previous = GetCurrentSubscription();
+        var storedProfile = _phoneProfiles.GetProfile(iccId);
+        var sameAsPrevious = string.Equals(
+            NormalizeIccId(previous?.IccId ?? string.Empty),
+            iccId,
+            StringComparison.OrdinalIgnoreCase);
 
-        var windowsProfileName =
-            string.Equals(
-                NormalizeIccId(previous?.IccId ?? string.Empty),
-                iccId,
-                StringComparison.OrdinalIgnoreCase)
-                ? previous?.WindowsProfileName ?? string.Empty
-                : string.Empty;
+        var windowsProfileName = sameAsPrevious
+            ? previous?.WindowsProfileName ?? string.Empty
+            : storedProfile.WindowsProfileName;
 
-        bool? isEsim =
-            string.Equals(
-                NormalizeIccId(previous?.IccId ?? string.Empty),
-                iccId,
-                StringComparison.OrdinalIgnoreCase)
-                ? previous?.IsEsim
-                : null;
+        bool? isEsim = sameAsPrevious
+            ? previous?.IsEsim
+            : storedProfile.IsEsim;
 
         var needMetadata =
             !string.Equals(
