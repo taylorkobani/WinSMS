@@ -6,10 +6,9 @@ using System.Text.RegularExpressions;
 namespace WinSMS.Services;
 
 /// <summary>
-/// Reads the active mobile-broadband subscriber identity through Windows'
-/// read-only netsh MBN diagnostics. This supplements SmsDevice2 because some
-/// dual-SIM/eSIM modems keep AccountPhoneNumber bound to the modem/SMS device
-/// rather than the currently mapped SIM/eSIM subscription.
+/// Reads Windows Mobile Broadband subscriber/slot information without changing
+/// modem state. On multi-SIM/eSIM systems SmsDevice2.AccountPhoneNumber can be
+/// bound to the SMS device while Windows routes traffic through another slot.
 /// </summary>
 public sealed class MobileBroadbandIdentityService
 {
@@ -21,8 +20,8 @@ public sealed class MobileBroadbandIdentityService
         @"^\s*Name\s*:\s*(.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
-    private static readonly Regex SlotIndexValue = new(
-        @"slot(?:\s+(?:index|mapping))?\s*[:=]?\s*(\d+)",
+    private static readonly Regex SlotIndexRegex = new(
+        @"slot\s+index\s+(\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public async Task<MobileBroadbandReadyInfo> GetReadyInfoAsync(
@@ -30,7 +29,8 @@ public sealed class MobileBroadbandIdentityService
     {
         var diagnostics = new StringBuilder();
         var errors = new List<string>();
-        var numbers = new List<string>();
+        var interfaceNames = new List<string>();
+        var slotResults = new List<MobileBroadbandSlotInfo>();
 
         try
         {
@@ -38,15 +38,11 @@ public sealed class MobileBroadbandIdentityService
                 cancellationToken, "mbn", "show", "interfaces");
 
             diagnostics.AppendLine("netsh mbn show interfaces:");
-            diagnostics.AppendLine(interfacesResult.Output.Trim());
+            AppendResult(diagnostics, interfacesResult);
 
-            if (!interfacesResult.Success && !string.IsNullOrWhiteSpace(interfacesResult.Error))
-                errors.Add($"interfaces: {interfacesResult.Error}");
+            interfaceNames.AddRange(ParseInterfaceNames(interfacesResult.Output));
 
-            var interfaceNames = ParseInterfaceNames(interfacesResult.Output).ToList();
-
-            // Locale-independent fallback. WWANPP/WWANPP2 are the .NET network
-            // interface types used for GSM/CDMA mobile-broadband interfaces.
+            // Locale-independent fallback to Windows WWAN adapters.
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (nic.NetworkInterfaceType is
@@ -62,10 +58,10 @@ public sealed class MobileBroadbandIdentityService
                 return new MobileBroadbandReadyInfo(
                     Array.Empty<string>(),
                     Array.Empty<string>(),
+                    Array.Empty<MobileBroadbandSlotInfo>(),
+                    null,
                     diagnostics.ToString(),
-                    errors.Count == 0
-                        ? "Windows did not report a mobile broadband interface."
-                        : string.Join(" | ", errors));
+                    "Windows did not report a mobile broadband interface.");
             }
 
             foreach (var interfaceName in interfaceNames)
@@ -73,66 +69,106 @@ public sealed class MobileBroadbandIdentityService
                 cancellationToken.ThrowIfCancellationRequested();
 
                 diagnostics.AppendLine();
-                diagnostics.AppendLine($"Interface: {interfaceName}");
-
-                // The interface parameter is REQUIRED for "show readyinfo".
-                // Calling "readyinfo *" is invalid and was the reason the
-                // previous implementation always returned exit code 1.
-                var ready = await RunNetshAsync(
-                    cancellationToken,
-                    "mbn", "show", "readyinfo", $"interface={interfaceName}");
-
-                diagnostics.AppendLine("readyinfo:");
-                diagnostics.AppendLine(ready.Output.Trim());
-
-                AddUniqueNumbers(numbers, ParseTelephoneNumbers(ready.Output));
-
-                if (!ready.Success)
-                    errors.Add($"{interfaceName} readyinfo: {ready.Error ?? $"exit code {ready.ExitCode}"}");
-
-                // On dual-SIM/eSIM hardware Windows exposes the currently mapped
-                // modem slot separately. Query it read-only and, when we can
-                // identify the slot index, ask readyinfo for that exact slot.
-                var mapping = await RunNetshAsync(
-                    cancellationToken,
-                    "mbn", "show", "slotmapping", $"interface={interfaceName}");
-
-                diagnostics.AppendLine("slotmapping:");
-                diagnostics.AppendLine(mapping.Output.Trim());
-
-                var activeSlotIndex = ParseMappedSlotIndex(mapping.Output);
-                if (activeSlotIndex.HasValue)
-                {
-                    var mappedReady = await RunNetshAsync(
-                        cancellationToken,
-                        "mbn", "show", "readyinfo",
-                        $"interface={interfaceName}",
-                        $"slotindex={activeSlotIndex.Value}");
-
-                    diagnostics.AppendLine($"readyinfo slotindex={activeSlotIndex.Value}:");
-                    diagnostics.AppendLine(mappedReady.Output.Trim());
-
-                    // Prefer the mapped slot's number by putting it first.
-                    var mappedNumbers = ParseTelephoneNumbers(mappedReady.Output);
-                    foreach (var mappedNumber in mappedNumbers.Reverse())
-                    {
-                        var normalized = Normalize(mappedNumber);
-                        numbers.RemoveAll(existing => Normalize(existing) == normalized);
-                        numbers.Insert(0, mappedNumber);
-                    }
-                }
+                diagnostics.AppendLine($"===== Interface: {interfaceName} =====");
 
                 var slotStatus = await RunNetshAsync(
                     cancellationToken,
                     "mbn", "show", "slotstatus", $"interface={interfaceName}");
 
                 diagnostics.AppendLine("slotstatus:");
-                diagnostics.AppendLine(slotStatus.Output.Trim());
+                AppendResult(diagnostics, slotStatus);
+
+                var slotMapping = await RunNetshAsync(
+                    cancellationToken,
+                    "mbn", "show", "slotmapping", $"interface={interfaceName}");
+
+                diagnostics.AppendLine("slotmapping:");
+                AppendResult(diagnostics, slotMapping);
+
+                var slotIndexes = ParseSlotIndexes(slotStatus.Output)
+                    .Concat(ParseSlotIndexes(slotMapping.Output))
+                    .Distinct()
+                    .OrderBy(index => index)
+                    .ToList();
+
+                // Some drivers expose the slots but omit them from one or both
+                // netsh reports. Probe the standard DSSA indexes as a safe,
+                // read-only fallback.
+                if (slotIndexes.Count == 0)
+                {
+                    slotIndexes.Add(0);
+                    slotIndexes.Add(1);
+                }
+
+                var mappedSlot = ParseMappedSlotIndex(slotMapping.Output);
+                var activeFromStatus = ParseActiveSlotIndex(slotStatus.Output);
+                var selectedSlot = mappedSlot ?? activeFromStatus;
+
+                foreach (var slotIndex in slotIndexes)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var ready = await RunNetshAsync(
+                        cancellationToken,
+                        "mbn", "show", "readyinfo",
+                        $"interface={interfaceName}",
+                        $"slotindex={slotIndex}");
+
+                    diagnostics.AppendLine($"readyinfo slotindex={slotIndex}:");
+                    AppendResult(diagnostics, ready);
+
+                    var numbers = ParseTelephoneNumbers(ready.Output);
+                    var stateText = GetSlotStateText(slotStatus.Output, slotIndex);
+                    var isEsim = stateText.Contains("esim", StringComparison.OrdinalIgnoreCase);
+
+                    slotResults.Add(new MobileBroadbandSlotInfo(
+                        interfaceName,
+                        slotIndex,
+                        selectedSlot == slotIndex,
+                        isEsim,
+                        stateText,
+                        numbers,
+                        ready.ExitCode,
+                        ready.Error));
+                }
+
+                // Also try the documented interface-only form and the wildcard
+                // form because modem/WWAN driver implementations differ.
+                foreach (var readyArgs in new[]
+                {
+                    new[] { "mbn", "show", "readyinfo", $"interface={interfaceName}" },
+                    new[] { "mbn", "show", "readyinfo", "interface=*" }
+                })
+                {
+                    var ready = await RunNetshAsync(cancellationToken, readyArgs);
+                    diagnostics.AppendLine($"readyinfo {string.Join(" ", readyArgs.Skip(3))}:");
+                    AppendResult(diagnostics, ready);
+
+                    if (!ready.Success && !string.IsNullOrWhiteSpace(ready.Error))
+                        errors.Add($"{interfaceName} readyinfo: {ready.Error}");
+                }
+            }
+
+            var selected = slotResults.FirstOrDefault(slot => slot.IsSelected);
+            var preferredNumbers = selected?.TelephoneNumbers?.ToList() ?? new List<string>();
+
+            foreach (var slot in slotResults)
+            {
+                foreach (var number in slot.TelephoneNumbers)
+                {
+                    if (!preferredNumbers.Any(existing =>
+                        Normalize(existing) == Normalize(number)))
+                    {
+                        preferredNumbers.Add(number);
+                    }
+                }
             }
 
             return new MobileBroadbandReadyInfo(
-                numbers,
+                preferredNumbers,
                 interfaceNames,
+                slotResults,
+                selected,
                 diagnostics.ToString(),
                 errors.Count == 0 ? null : string.Join(" | ", errors));
         }
@@ -143,8 +179,10 @@ public sealed class MobileBroadbandIdentityService
         catch (Exception ex)
         {
             return new MobileBroadbandReadyInfo(
-                numbers,
                 Array.Empty<string>(),
+                interfaceNames,
+                slotResults,
+                slotResults.FirstOrDefault(slot => slot.IsSelected),
                 diagnostics.ToString(),
                 ex.Message);
         }
@@ -157,18 +195,58 @@ public sealed class MobileBroadbandIdentityService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+    internal static IReadOnlyList<int> ParseSlotIndexes(string output)
+        => SlotIndexRegex.Matches(output ?? string.Empty)
+            .Select(match => int.TryParse(match.Groups[1].Value, out var index)
+                ? (int?)index
+                : null)
+            .Where(index => index.HasValue)
+            .Select(index => index!.Value)
+            .Distinct()
+            .ToList();
+
     internal static int? ParseMappedSlotIndex(string output)
     {
-        foreach (var rawLine in (output ?? string.Empty)
-                     .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+        foreach (var rawLine in SplitLines(output))
         {
             var line = rawLine.Trim();
             if (!line.Contains("slot", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            var match = SlotIndexValue.Match(line);
-            if (match.Success && int.TryParse(match.Groups[1].Value, out var slot))
-                return slot;
+            if (!line.Contains("map", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("select", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("default", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var match = SlotIndexRegex.Match(line);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var index))
+                return index;
+
+            // Some versions output just "Slot mapping : 1".
+            var colon = line.LastIndexOf(':');
+            if (colon >= 0 &&
+                int.TryParse(line[(colon + 1)..].Trim(), out index))
+                return index;
+        }
+
+        return null;
+    }
+
+    internal static int? ParseActiveSlotIndex(string output)
+    {
+        foreach (var rawLine in SplitLines(output))
+        {
+            var line = rawLine.Trim();
+            if (!line.Contains("slot index", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!line.Contains("active", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("available", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var match = SlotIndexRegex.Match(line);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var index))
+                return index;
         }
 
         return null;
@@ -178,14 +256,10 @@ public sealed class MobileBroadbandIdentityService
     {
         var numbers = new List<string>();
 
-        foreach (var rawLine in (output ?? string.Empty)
-                     .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+        foreach (var rawLine in SplitLines(output))
         {
             var line = rawLine.Trim();
 
-            // Typical English output:
-            // "Telephone #1 : +447..."
-            // Ignore "Number of telephone numbers : 1".
             if (!line.Contains("telephone", StringComparison.OrdinalIgnoreCase) ||
                 line.Contains("number of telephone", StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -211,13 +285,29 @@ public sealed class MobileBroadbandIdentityService
         return numbers;
     }
 
-    private static void AddUniqueNumbers(List<string> target, IEnumerable<string> values)
+    private static string GetSlotStateText(string output, int slotIndex)
     {
-        foreach (var value in values)
+        foreach (var rawLine in SplitLines(output))
         {
-            if (!target.Any(existing => Normalize(existing) == Normalize(value)))
-                target.Add(value);
+            var line = rawLine.Trim();
+            if (line.Contains($"slot index {slotIndex}", StringComparison.OrdinalIgnoreCase))
+                return line;
         }
+
+        return string.Empty;
+    }
+
+    private static IEnumerable<string> SplitLines(string? output)
+        => (output ?? string.Empty)
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+    private static void AppendResult(StringBuilder diagnostics, NetshResult result)
+    {
+        diagnostics.AppendLine($"Exit code: {result.ExitCode}");
+        if (!string.IsNullOrWhiteSpace(result.Output))
+            diagnostics.AppendLine(result.Output.Trim());
+        if (!string.IsNullOrWhiteSpace(result.Error))
+            diagnostics.AppendLine($"stderr: {result.Error}");
     }
 
     private static async Task<NetshResult> RunNetshAsync(
@@ -260,13 +350,10 @@ public sealed class MobileBroadbandIdentityService
             return new NetshResult(-1, string.Empty, "netsh query timed out.");
         }
 
-        var output = await outputTask;
-        var error = await errorTask;
-
         return new NetshResult(
             process.ExitCode,
-            output,
-            string.IsNullOrWhiteSpace(error) ? null : error.Trim());
+            await outputTask,
+            string.IsNullOrWhiteSpace(await errorTask) ? null : (await errorTask).Trim());
     }
 
     private static string Normalize(string number)
@@ -283,8 +370,20 @@ public sealed class MobileBroadbandIdentityService
     }
 }
 
+public sealed record MobileBroadbandSlotInfo(
+    string InterfaceName,
+    int SlotIndex,
+    bool IsSelected,
+    bool IsEsim,
+    string State,
+    IReadOnlyList<string> TelephoneNumbers,
+    int ReadyInfoExitCode,
+    string? ReadyInfoError);
+
 public sealed record MobileBroadbandReadyInfo(
     IReadOnlyList<string> TelephoneNumbers,
     IReadOnlyList<string> InterfaceNames,
+    IReadOnlyList<MobileBroadbandSlotInfo> Slots,
+    MobileBroadbandSlotInfo? SelectedSlot,
     string RawOutput,
     string? Error);
