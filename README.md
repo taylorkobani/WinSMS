@@ -18,6 +18,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Number blocking** discards future incoming messages from blocked numbers before WinSMS archives or displays them.
 - **SIM/eSIM profiles** are keyed by ICCID and can store a WinSMS name, colour, Windows connection-profile name, SIM type, and optional phone number.
 - **ICCID-based SIM/eSIM detection** reads fresh Windows Mobile Broadband subscriber identity and treats phone number as optional metadata, avoiding stale `SmsDevice2.AccountPhoneNumber` values after a SIM/eSIM switch.
+- **Title-bar SIM/eSIM switcher** lets supported dual-SIM single-active Windows devices remap the active modem slot directly from the current-profile pill, with ICCID verification before WinSMS changes profile context.
 - **System tray support** keeps WinSMS running when the main window is minimized.
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
 - **Exit confirmation** prevents accidental application shutdown.
@@ -103,6 +104,8 @@ The **Profiles** page identifies each local cellular subscription by **ICCID**, 
 When Windows reports the phone number for the current ICCID, WinSMS overwrites the stored number with that Windows value and makes it read-only. When Windows does not report a number (common with some eSIM/carrier combinations), the user can enter the phone number manually.
 
 The current profile is reflected in the application title area. ICCID remains the identity key regardless of whether a phone number is available.
+
+Click the current-profile pill to open the SIM/eSIM selector. The active subscription is checked. Selecting the other type asks Windows Mobile Broadband to change the modem slot mapping, then WinSMS waits for the active ICCID to change before updating the profile and conversations. Windows may request administrator approval for the slot-mapping operation.
 
 ### Notification area
 
