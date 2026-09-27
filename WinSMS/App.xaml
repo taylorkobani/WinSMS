@@ -12,6 +12,7 @@
             <helpers:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
             <helpers:NullToBoolConverter x:Key="NullToBoolConverter"/>
             <helpers:EmptyCollectionToVisibilityConverter x:Key="EmptyCollectionToVisibilityConverter"/>
+            <helpers:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter"/>
             <helpers:BoolToUnreadColorConverter x:Key="BoolToUnreadColorConverter"/>
             <helpers:BoolToInfoBarSeverityConverter x:Key="BoolToInfoBarSeverityConverter"/>
             <helpers:GreaterThanOneToVisibilityConverter x:Key="GreaterThanOneToVisibilityConverter"/>
