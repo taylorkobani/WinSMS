@@ -126,23 +126,36 @@ public class SmsService : ISmsService
                             }
                             else
                             {
-                                // Best-effort fallback for drivers that expose the eSIM slot
-                                // type but omit per-slot ICCID from readyinfo.
-                                var eSimSlots = readyInfo.Slots
-                                    .Where(slot => slot.IsEsim)
-                                    .ToList();
-            
-                                var physicalSlots = readyInfo.Slots
-                                    .Where(slot => !slot.IsEsim)
-                                    .ToList();
-            
-                                if (eSimSlots.Count == 1 &&
-                                    physicalSlots.Any() &&
-                                    !string.IsNullOrWhiteSpace(previous?.IccId) &&
-                                    NormalizeIccId(previous.IccId) != iccId &&
-                                    previous.IsEsim == false)
+                                var subscriberPhone = subscriber.TelephoneNumbers
+                                    .FirstOrDefault(number => !string.IsNullOrWhiteSpace(number));
+
+                                if (readyInfo.SelectedSlot != null &&
+                                    !string.IsNullOrWhiteSpace(subscriberPhone) &&
+                                    readyInfo.SelectedSlot.TelephoneNumbers.Any(number =>
+                                        PhoneNumbersEquivalent(number, subscriberPhone)))
                                 {
-                                    isEsim = true;
+                                    isEsim = readyInfo.SelectedSlot.IsEsim;
+                                }
+                                else
+                                {
+                                    // Best-effort fallback for drivers that expose
+                                    // one dedicated eSIM slot but omit its ICCID.
+                                    var eSimSlots = readyInfo.Slots
+                                        .Where(slot => slot.IsEsim)
+                                        .ToList();
+
+                                    var physicalSlots = readyInfo.Slots
+                                        .Where(slot => !slot.IsEsim)
+                                        .ToList();
+
+                                    if (eSimSlots.Count == 1 &&
+                                        physicalSlots.Any() &&
+                                        !string.IsNullOrWhiteSpace(previous?.IccId) &&
+                                        NormalizeIccId(previous.IccId) != iccId &&
+                                        previous.IsEsim == false)
+                                    {
+                                        isEsim = true;
+                                    }
                                 }
                             }
             
