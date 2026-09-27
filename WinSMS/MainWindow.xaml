@@ -23,13 +23,17 @@
                 <TextBlock Text="WinSMS"
                            VerticalAlignment="Center"
                            FontWeight="SemiBold"/>
-                <Border x:Name="PhoneProfilePill"
+                <Button x:Name="PhoneProfilePill"
                         Padding="10,3"
                         CornerRadius="12"
+                        BorderThickness="0"
                         Visibility="Collapsed"
-                        Tapped="PhoneProfilePill_Tapped"
-                        ToolTipService.ToolTip="Switch SIM or eSIM"
-                        AutomationProperties.Name="Current cellular subscription. Click to switch SIM or eSIM.">
+                        ToolTipService.ToolTip="Choose SIM or eSIM"
+                        AutomationProperties.Name="Current cellular subscription. Choose SIM or eSIM.">
+                    <Button.Flyout>
+                        <MenuFlyout x:Name="PhoneProfileFlyout"
+                                    Opening="PhoneProfileFlyout_Opening"/>
+                    </Button.Flyout>
                     <StackPanel Orientation="Horizontal" Spacing="5">
                         <TextBlock x:Name="PhoneProfileName"
                                    Foreground="White"
@@ -41,7 +45,7 @@
                                   FontSize="10"
                                   VerticalAlignment="Center"/>
                     </StackPanel>
-                </Border>
+                </Button>
             </StackPanel>
         </Grid>
 
