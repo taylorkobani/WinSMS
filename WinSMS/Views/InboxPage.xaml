@@ -6,11 +6,8 @@
     x:Name="RootPage"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
     <Grid Margin="16,16,16,6">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <Grid Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="Conversations" Style="{StaticResource TitleTextBlockStyle}"/>
-        </Grid>
-        <Grid Grid.Row="1">
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid Grid.Row="0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <ListView x:Name="MessageList" Grid.Column="0" ItemsSource="{x:Bind ViewModel.Conversations}"
                       SelectedItem="{x:Bind ViewModel.SelectedConversation, Mode=TwoWay}" SelectionMode="Single"
@@ -53,6 +50,15 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+
+            <TextBlock Grid.Column="0"
+                       Text="No conversations yet."
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Opacity="0.65"
+                       IsHitTestVisible="False"
+                       Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}"/>
+
             <Grid Grid.Column="1" Padding="16,16,16,6">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="{x:Bind ViewModel.SelectedConversation.PhoneNumber, Mode=OneWay}"
@@ -124,8 +130,8 @@
                 </Grid>
             </Grid>
         </Grid>
-        <ProgressBar Grid.Row="2" IsIndeterminate="True" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"/>
-        <TextBlock Grid.Row="2" Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" Opacity="0.7"
+        <ProgressBar Grid.Row="1" IsIndeterminate="True" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"/>
+        <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" Opacity="0.7"
                    Visibility="{x:Bind ViewModel.StatusMessage, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"/>
     </Grid>
 </Page>
