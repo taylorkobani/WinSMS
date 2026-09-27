@@ -220,7 +220,7 @@ Existing phone-number-keyed profiles are migrated when the corresponding SIM is 
 
 ## Message archive
 
-Messages are scoped using both the **local phone number** and **remote phone number**. Conversation files are therefore separated by line as well as correspondent.
+Messages are scoped using both the **local subscription ICCID** and **remote phone number**. The local phone number is optional metadata and is not used as the archive identity.
 
 Phone-number normalization currently strips non-digits, converts a leading `00` international prefix, and treats sufficiently long numbers beginning with `0` as UK numbers by replacing the leading zero with country code `44`.
 
