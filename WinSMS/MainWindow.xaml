@@ -14,6 +14,9 @@
               Grid.Row="0"
               Padding="12,0"
               Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <Grid x:Name="TitleBarDragRegion"
+                  Background="Transparent"/>
+
             <StackPanel Orientation="Horizontal"
                         Spacing="10"
                         VerticalAlignment="Center">
