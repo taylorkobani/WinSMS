@@ -17,6 +17,18 @@ public class NullToVisibilityConverter : IValueConverter
         => throw new NotImplementedException();
 }
 
+/// <summary>Returns Visible when a collection is empty; otherwise Collapsed.</summary>
+public class EmptyCollectionToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+        => value is System.Collections.ICollection collection && collection.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
+        => throw new NotImplementedException();
+}
+
 /// <summary>Converts null to false, non-null to true.</summary>
 public class NullToBoolConverter : IValueConverter
 {
