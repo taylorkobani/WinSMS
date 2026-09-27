@@ -73,7 +73,7 @@ public sealed partial class MainWindow : Window
 
         var smsService = App.Services.GetRequiredService<ISmsService>();
         smsService.MessageReceived += OnSmsMessageReceived;
-        smsService.CurrentPhoneNumberChanged += OnCurrentPhoneNumberChanged;
+        smsService.CurrentSubscriptionChanged += OnCurrentSubscriptionChanged;
 
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
         phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
@@ -95,12 +95,13 @@ public sealed partial class MainWindow : Window
         var smsService = App.Services.GetRequiredService<ISmsService>();
         try
         {
-            var phoneNumber = await smsService.SynchronizeCurrentPhoneNumberAsync();
-            await EnsureCurrentPhoneProfileAsync(phoneNumber);
+            var subscription = await smsService.SynchronizeCurrentSubscriptionAsync();
+            await EnsureCurrentSubscriptionProfileAsync(subscription);
         }
         catch
         {
-            await EnsureCurrentPhoneProfileAsync(smsService.GetCurrentPhoneNumber());
+            await EnsureCurrentSubscriptionProfileAsync(
+                smsService.GetCurrentSubscription());
         }
 
         UpdatePhoneProfile();
@@ -133,7 +134,7 @@ public sealed partial class MainWindow : Window
             // access on the same thread/apartment as the rest of the app.
             await App.Services
                 .GetRequiredService<ISmsService>()
-                .SynchronizeCurrentPhoneNumberAsync();
+                .SynchronizeCurrentSubscriptionAsync();
         }
         catch
         {
@@ -193,29 +194,36 @@ public sealed partial class MainWindow : Window
         RemoveTrayIcon();
     }
 
-    private void OnCurrentPhoneNumberChanged(object? sender, string phoneNumber)
+    private void OnCurrentSubscriptionChanged(
+        object? sender,
+        CellularSubscription subscription)
     {
         DispatcherQueue.TryEnqueue(async () =>
         {
-            await EnsureCurrentPhoneProfileAsync(phoneNumber);
+            await EnsureCurrentSubscriptionProfileAsync(subscription);
             UpdatePhoneProfile();
         });
     }
 
-    private async Task EnsureCurrentPhoneProfileAsync(string phoneNumber)
+    private async Task EnsureCurrentSubscriptionProfileAsync(
+        CellularSubscription? subscription)
     {
-        if (string.IsNullOrWhiteSpace(phoneNumber))
+        if (subscription == null ||
+            string.IsNullOrWhiteSpace(subscription.IccId))
+        {
             return;
+        }
 
         try
         {
-            var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
-            await phoneProfiles.EnsureProfileAsync(phoneNumber);
+            var phoneProfiles =
+                App.Services.GetRequiredService<PhoneProfileService>();
+
+            await phoneProfiles.SynchronizeProfileAsync(subscription);
         }
         catch
         {
-            // Profile synchronization should never prevent the app from
-            // continuing to use the Windows SMS device.
+            // Profile synchronization must never prevent SMS use.
         }
     }
 
@@ -382,7 +390,7 @@ public sealed partial class MainWindow : Window
 
         var smsService = App.Services.GetRequiredService<ISmsService>();
         smsService.MessageReceived -= OnSmsMessageReceived;
-        smsService.CurrentPhoneNumberChanged -= OnCurrentPhoneNumberChanged;
+        smsService.CurrentSubscriptionChanged -= OnCurrentSubscriptionChanged;
         RemoveTrayIcon();
 
         // The SMS popup is a second top-level WinUI Window. Hiding it is not
@@ -453,27 +461,52 @@ public sealed partial class MainWindow : Window
     private void UpdatePhoneProfile()
     {
         var smsService = App.Services.GetRequiredService<ISmsService>();
-        var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
-        var localPhoneNumber = smsService.GetCurrentPhoneNumber();
-        var profile = phoneProfiles.GetProfile(localPhoneNumber);
+        var phoneProfiles =
+            App.Services.GetRequiredService<PhoneProfileService>();
 
-        // Keep the native window title stable; show the friendly account identity
-        // as a colored pill in the visible app chrome.
+        var subscription = smsService.GetCurrentSubscription();
+
         Title = "WinSMS";
 
-        var displayName = string.IsNullOrWhiteSpace(profile.Name)
-            ? localPhoneNumber
-            : profile.Name;
-
-        if (string.IsNullOrWhiteSpace(displayName))
+        if (subscription == null ||
+            string.IsNullOrWhiteSpace(subscription.IccId))
         {
             PhoneProfilePill.Visibility = Visibility.Collapsed;
             return;
         }
 
-        PhoneProfileName.Text = displayName;
-        PhoneProfilePill.Background = new SolidColorBrush(ParseColor(profile.Color));
+        var profile = phoneProfiles.GetProfile(subscription.IccId);
+
+        var simType = profile.IsEsim switch
+        {
+            true => "eSIM",
+            false => "SIM",
+            _ => subscription.SimTypeLabel
+        };
+
+        var displayName =
+            !string.IsNullOrWhiteSpace(profile.Name)
+                ? profile.Name
+                : !string.IsNullOrWhiteSpace(profile.WindowsProfileName)
+                    ? profile.WindowsProfileName
+                    : !string.IsNullOrWhiteSpace(profile.PhoneNumber)
+                        ? profile.PhoneNumber
+                        : $"{simType} •••{Tail(subscription.IccId, 6)}";
+
+        PhoneProfileName.Text = $"{displayName} · {simType}";
+        PhoneProfilePill.Background =
+            new SolidColorBrush(ParseColor(profile.Color));
         PhoneProfilePill.Visibility = Visibility.Visible;
+    }
+
+    private static string Tail(string value, int length)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Length <= length
+            ? value
+            : value[^length..];
     }
 
     private static Color ParseColor(string value)
