@@ -229,7 +229,7 @@ Phone-number normalization currently strips non-digits, converts a leading `00` 
 
 ## Diagnostics and privacy
 
-The diagnostics screen can expose device and telecommunications identifiers such as device IDs, parent device IDs, account phone numbers, and SMSC addresses.
+The diagnostics screen can expose device and telecommunications identifiers such as device IDs, ICCIDs, subscriber IDs/IMSIs, account phone numbers, Windows profile names, and SMSC addresses.
 
 Do not post diagnostic output publicly without reviewing and redacting sensitive identifiers first.
 
