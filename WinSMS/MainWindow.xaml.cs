@@ -459,10 +459,12 @@ public sealed partial class MainWindow : Window
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    private void PhoneProfilePill_Tapped(
+    private void PhoneProfileFlyout_Opening(
         object sender,
-        Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        object e)
     {
+        PhoneProfileFlyout.Items.Clear();
+
         if (_subscriptionSwitchInProgress)
             return;
 
@@ -475,28 +477,46 @@ public sealed partial class MainWindow : Window
             return;
 
         var profiles = phoneProfiles.GetProfiles();
-
         var simProfile = profiles.FirstOrDefault(profile => profile.IsEsim == false);
         var esimProfile = profiles.FirstOrDefault(profile => profile.IsEsim == true);
 
         var currentProfile = phoneProfiles.GetProfile(current.IccId);
         var currentIsEsim = currentProfile.IsEsim ?? current.IsEsim;
 
-        var flyout = new MenuFlyout();
-
-        flyout.Items.Add(CreateSubscriptionMenuItem(
-            "SIM",
+        PhoneProfileFlyout.Items.Add(CreateSubscriptionMenuItem(
+            BuildSubscriptionMenuLabel(simProfile, "SIM"),
             useEsim: false,
             simProfile?.IccId,
             currentIsEsim == false));
 
-        flyout.Items.Add(CreateSubscriptionMenuItem(
-            "eSIM",
+        PhoneProfileFlyout.Items.Add(CreateSubscriptionMenuItem(
+            BuildSubscriptionMenuLabel(esimProfile, "eSIM"),
             useEsim: true,
             esimProfile?.IccId,
             currentIsEsim == true));
+    }
 
-        flyout.ShowAt(PhoneProfilePill);
+    private static string BuildSubscriptionMenuLabel(
+        PhoneProfile? profile,
+        string simType)
+    {
+        if (profile == null)
+            return simType;
+
+        var name =
+            !string.IsNullOrWhiteSpace(profile.Name)
+                ? profile.Name
+                : !string.IsNullOrWhiteSpace(profile.WindowsProfileName)
+                    ? profile.WindowsProfileName
+                    : !string.IsNullOrWhiteSpace(profile.PhoneNumber)
+                        ? profile.PhoneNumber
+                        : !string.IsNullOrWhiteSpace(profile.IccId)
+                            ? $"•••{Tail(profile.IccId, 6)}"
+                            : string.Empty;
+
+        return string.IsNullOrWhiteSpace(name)
+            ? simType
+            : $"{name} · {simType}";
     }
 
     private ToggleMenuFlyoutItem CreateSubscriptionMenuItem(
@@ -532,6 +552,7 @@ public sealed partial class MainWindow : Window
         }
 
         _subscriptionSwitchInProgress = true;
+        PhoneProfilePill.IsEnabled = false;
         PhoneProfileName.Text = $"Switching to {request.Label}…";
 
         try
@@ -559,6 +580,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             _subscriptionSwitchInProgress = false;
+            PhoneProfilePill.IsEnabled = true;
         }
     }
 
