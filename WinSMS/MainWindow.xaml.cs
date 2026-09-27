@@ -70,9 +70,12 @@ public sealed partial class MainWindow : Window
 
         var smsService = App.Services.GetRequiredService<ISmsService>();
         smsService.MessageReceived += OnSmsMessageReceived;
+        smsService.CurrentPhoneNumberChanged += OnCurrentPhoneNumberChanged;
 
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
         phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
+
+        _ = EnsureCurrentPhoneProfileAsync(smsService.GetCurrentPhoneNumber());
         UpdatePhoneProfile();
     }
 
@@ -122,6 +125,32 @@ public sealed partial class MainWindow : Window
 
         SetForegroundWindow(_hwnd);
         RemoveTrayIcon();
+    }
+
+    private void OnCurrentPhoneNumberChanged(object? sender, string phoneNumber)
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            await EnsureCurrentPhoneProfileAsync(phoneNumber);
+            UpdatePhoneProfile();
+        });
+    }
+
+    private async Task EnsureCurrentPhoneProfileAsync(string phoneNumber)
+    {
+        if (string.IsNullOrWhiteSpace(phoneNumber))
+            return;
+
+        try
+        {
+            var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
+            await phoneProfiles.EnsureProfileAsync(phoneNumber);
+        }
+        catch
+        {
+            // Profile synchronization should never prevent the app from
+            // continuing to use the Windows SMS device.
+        }
     }
 
     private void OnSmsMessageReceived(object? sender, SmsMessage message)
@@ -277,7 +306,10 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         _appWindow.Closing -= AppWindow_Closing;
-        App.Services.GetRequiredService<ISmsService>().MessageReceived -= OnSmsMessageReceived;
+
+        var smsService = App.Services.GetRequiredService<ISmsService>();
+        smsService.MessageReceived -= OnSmsMessageReceived;
+        smsService.CurrentPhoneNumberChanged -= OnCurrentPhoneNumberChanged;
         RemoveTrayIcon();
 
         // The SMS popup is a second top-level WinUI Window. Hiding it is not
