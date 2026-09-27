@@ -489,59 +489,46 @@ public sealed class MobileBroadbandIdentityService
         if (string.IsNullOrWhiteSpace(output))
             return null;
 
-        // Windows commonly emits:
-        // "The slot index that is currently mapped on interface Mobile: ----- 0"
-        // or:
-        // "Slot mapping : 1"
-        //
-        // Parse these directly from the complete output first so formatting,
-        // separator dashes and line wrapping do not cause a false negative.
-        var explicitMatch = System.Text.RegularExpressions.Regex.Match(
-            output,
-            @"currently\s+mapped[^\r\n]*?(\d+)\s*(?:\r?$|$)",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-            System.Text.RegularExpressions.RegexOptions.Multiline);
-
-        if (explicitMatch.Success &&
-            int.TryParse(explicitMatch.Groups[1].Value, out var explicitIndex))
-        {
-            return explicitIndex;
-        }
-
-        var mappingMatch = System.Text.RegularExpressions.Regex.Match(
-            output,
-            @"slot\s+mapping[^\r\n]*?(\d+)\s*(?:\r?$|$)",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-            System.Text.RegularExpressions.RegexOptions.Multiline);
-
-        if (mappingMatch.Success &&
-            int.TryParse(mappingMatch.Groups[1].Value, out var mappingIndex))
-        {
-            return mappingIndex;
-        }
-
-        // Fallback for vendor-specific output: inspect any line mentioning a
-        // mapped/selected/default slot and take its trailing integer.
+        // netsh output from some WWAN drivers contains unusual spacing/control
+        // characters. Normalize each line and trust the final integer on the
+        // line that explicitly describes the currently mapped slot.
         foreach (var rawLine in SplitLines(output))
         {
-            var line = rawLine.Trim();
+            var line = new string(rawLine
+                .Where(ch => !char.IsControl(ch) || ch == '\t')
+                .ToArray())
+                .Trim();
 
-            if (!line.Contains("slot", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(line))
                 continue;
 
-            if (!line.Contains("map", StringComparison.OrdinalIgnoreCase) &&
-                !line.Contains("select", StringComparison.OrdinalIgnoreCase) &&
-                !line.Contains("default", StringComparison.OrdinalIgnoreCase))
+            var describesCurrentMapping =
+                line.Contains("currently mapped", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("slot mapping", StringComparison.OrdinalIgnoreCase);
+
+            if (!describesCurrentMapping)
                 continue;
 
-            var trailingNumber = System.Text.RegularExpressions.Regex.Match(
-                line,
-                @"(\d+)\D*$");
+            var numbers = System.Text.RegularExpressions.Regex.Matches(line, @"\d+");
+            if (numbers.Count == 0)
+                continue;
 
-            if (trailingNumber.Success &&
-                int.TryParse(trailingNumber.Groups[1].Value, out var index))
+            var last = numbers[^1].Value;
+            if (int.TryParse(last, out var slotIndex))
+                return slotIndex;
+        }
+
+        // Last-resort fallback: if the complete output contains mapping
+        // language, use its final integer. This covers line wrapping and
+        // vendor-specific separator formatting.
+        if (output.Contains("mapped", StringComparison.OrdinalIgnoreCase) ||
+            output.Contains("slot mapping", StringComparison.OrdinalIgnoreCase))
+        {
+            var numbers = System.Text.RegularExpressions.Regex.Matches(output, @"\d+");
+            if (numbers.Count > 0 &&
+                int.TryParse(numbers[^1].Value, out var slotIndex))
             {
-                return index;
+                return slotIndex;
             }
         }
 
