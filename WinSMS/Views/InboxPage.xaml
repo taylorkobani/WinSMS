@@ -5,28 +5,13 @@
     xmlns:models="using:WinSMS.Models"
     x:Name="RootPage"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <Page.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="Default">
-                    <SolidColorBrush x:Key="ConversationListBackgroundBrush" Color="#FF151515"/>
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="ConversationListBackgroundBrush" Color="#FFE0E0E0"/>
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="HighContrast">
-                    <SolidColorBrush x:Key="ConversationListBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}"/>
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
-        </ResourceDictionary>
-    </Page.Resources>
     <Grid Margin="16,16,16,6">
         <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid Grid.Row="0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <ListView x:Name="MessageList" Grid.Column="0" ItemsSource="{x:Bind ViewModel.Conversations}"
                       SelectedItem="{x:Bind ViewModel.SelectedConversation, Mode=TwoWay}" SelectionMode="Single"
-                      Background="{ThemeResource ConversationListBackgroundBrush}"
+                      Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:SmsConversation">
@@ -75,7 +60,9 @@
                        IsHitTestVisible="False"
                        Visibility="{x:Bind ViewModel.HasConversations, Converter={StaticResource InverseBoolToVisibilityConverter}, Mode=OneWay}"/>
 
-            <Grid Grid.Column="1" Padding="16,16,16,6">
+            <Grid Grid.Column="1"
+                  Padding="16,16,16,6"
+                  Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="{x:Bind ViewModel.SelectedConversation.PhoneNumber, Mode=OneWay}"
                            Style="{StaticResource SubtitleTextBlockStyle}"
