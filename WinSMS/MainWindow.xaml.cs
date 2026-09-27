@@ -576,7 +576,7 @@ public sealed partial class MainWindow : Window
         _subscriptionSwitchInProgress = true;
         PhoneProfilePill.Visibility = Visibility.Visible;
         PhoneProfilePill.IsHitTestVisible = false;
-        PhoneProfileName.Text = $"Switching to {(request.UseEsim ? "eSIM" : "SIM")}…";
+        PhoneProfileName.Text = "Switching...";
 
         try
         {
