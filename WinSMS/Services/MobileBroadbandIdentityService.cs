@@ -32,7 +32,7 @@ public sealed class MobileBroadbandIdentityService
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex IccIdRegex = new(
-        @"(?:ICCID|SIM\s+ICC(?:\s+ID)?)\s*:\s*([0-9A-F]{15,22})",
+        @"(?:ICCID|SIM\s+ICC(?:\s*ID)?)\s*:\s*([0-9A-F]{15,22})",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex ProfileNameRegex = new(
