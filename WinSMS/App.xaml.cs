@@ -42,6 +42,7 @@ public partial class App : Application
         services.AddSingleton<BlockedNumberService>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<MobileBroadbandIdentityService>();
+        services.AddSingleton<LegacyMbnSubscriberService>();
 
         // ViewModels
         services.AddTransient<InboxViewModel>();
