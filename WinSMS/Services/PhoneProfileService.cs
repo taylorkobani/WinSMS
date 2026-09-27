@@ -258,12 +258,6 @@ public sealed class PhoneProfileService
             .Select(char.ToUpperInvariant)
             .ToArray());
 
-    private static bool PhoneNumbersEquivalent(string left, string right)
-        => string.Equals(
-            NormalizePhoneNumber(left),
-            NormalizePhoneNumber(right),
-            StringComparison.OrdinalIgnoreCase);
-
     private static string NormalizePhoneNumber(string phoneNumber)
     {
         var digits = new string((phoneNumber ?? string.Empty)
