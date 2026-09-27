@@ -469,6 +469,9 @@ public sealed class MobileBroadbandIdentityService
             if (!line.Contains("slot", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            // Known Windows outputs include:
+            //   "Slot mapping : 1"
+            //   "The slot index that is currently mapped on interface Mobile: ---- 1"
             if (!line.Contains("map", StringComparison.OrdinalIgnoreCase) &&
                 !line.Contains("select", StringComparison.OrdinalIgnoreCase) &&
                 !line.Contains("default", StringComparison.OrdinalIgnoreCase))
@@ -478,11 +481,18 @@ public sealed class MobileBroadbandIdentityService
             if (match.Success && int.TryParse(match.Groups[1].Value, out var index))
                 return index;
 
-            // Some versions output just "Slot mapping : 1".
             var colon = line.LastIndexOf(':');
-            if (colon >= 0 &&
-                int.TryParse(line[(colon + 1)..].Trim(), out index))
+            var tail = colon >= 0 ? line[(colon + 1)..] : line;
+
+            var trailingNumber = System.Text.RegularExpressions.Regex.Match(
+                tail,
+                @"(?<!\d)(\d+)\s*$");
+
+            if (trailingNumber.Success &&
+                int.TryParse(trailingNumber.Groups[1].Value, out index))
+            {
                 return index;
+            }
         }
 
         return null;
