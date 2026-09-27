@@ -118,33 +118,21 @@ public partial class SettingsViewModel : ObservableObject
                 lines.Add($"Device: {info.Name}");
                 lines.Add($"Device ID: {info.Id}");
                 lines.Add($"PnP enabled: {info.IsEnabled}");
+            }
 
-                try
-                {
-                    var sms = SmsDevice2.FromId(info.Id);
-                    if (sms is null)
-                    {
-                        lines.Add("SmsDevice2.FromId: returned null");
-                        continue;
-                    }
-
-                    lines.Add("SmsDevice2.FromId: SUCCESS");
-                    lines.Add($"SMS status: {sms.DeviceStatus}");
-                    lines.Add($"Cellular class: {sms.CellularClass}");
-                    lines.Add($"Parent device ID: {sms.ParentDeviceId}");
-                    lines.Add($"Account number: {sms.AccountPhoneNumber ?? "(not reported)"}");
-                    lines.Add($"SMSC address: {sms.SmscAddress ?? "(not reported)"}");
-
-                    // Do not call MobileBroadbandModem.FromId here. That API requires
-                    // restricted cellular identity/control capabilities and can fail below
-                    // the managed exception boundary on ordinary desktop installations.
-                    // SmsDevice2 already exposes the information WinSMS is allowed to use.
-                    lines.Add("Mobile broadband identity details: not queried (restricted Windows API).");
-                }
-                catch (Exception ex)
-                {
-                    lines.Add($"SmsDevice2.FromId failed: {FormatException(ex)}");
-                }
+            var defaultDevice = SmsDevice2.GetDefault();
+            if (defaultDevice == null)
+            {
+                lines.Add("Default SMS device: none");
+            }
+            else
+            {
+                lines.Add("Default SMS device:");
+                lines.Add($"SMS status: {defaultDevice.DeviceStatus}");
+                lines.Add($"Cellular class: {defaultDevice.CellularClass}");
+                lines.Add($"Parent device ID: {defaultDevice.ParentDeviceId}");
+                lines.Add($"SmsDevice2 account number: {defaultDevice.AccountPhoneNumber ?? "(not reported)"}");
+                lines.Add($"SMSC address: {defaultDevice.SmscAddress ?? "(not reported)"}");
             }
 
             var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync();
