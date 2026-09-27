@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Xml.Linq;
 using WinSMS.Helpers;
 using WinSMS.Models;
@@ -27,6 +28,101 @@ public class PhoneNumberValidationTests
 
 public class XmlArchiveParsingTests
 {
+    [Fact]
+    public async Task Conversations_AreSeparatedBySubscriptionIccId()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "WinSMS.Tests",
+            Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var archive = new XmlMessageArchiveService(
+                NullLogger<XmlMessageArchiveService>.Instance);
+
+            archive.SetArchiveDirectory(directory);
+
+            await archive.SaveMessageAsync(new SmsMessage
+            {
+                PhoneNumber = "+447700900001",
+                LocalSubscriptionId = "8944200203685005190F",
+                LocalPhoneNumber = "+447309320937",
+                Body = "Physical SIM",
+                Timestamp = DateTimeOffset.Now,
+                Direction = SmsDirection.Outgoing,
+                Status = SmsStatus.Sent
+            });
+
+            await archive.SaveMessageAsync(new SmsMessage
+            {
+                PhoneNumber = "+447700900001",
+                LocalSubscriptionId = "8944200206397011927F",
+                LocalPhoneNumber = string.Empty,
+                Body = "eSIM",
+                Timestamp = DateTimeOffset.Now.AddSeconds(1),
+                Direction = SmsDirection.Outgoing,
+                Status = SmsStatus.Sent
+            });
+
+            var physical = await archive.LoadConversationsAsync(
+                "8944200203685005190F",
+                "+447309320937");
+
+            var esim = await archive.LoadConversationsAsync(
+                "8944200206397011927F");
+
+            Assert.Single(physical);
+            Assert.Single(esim);
+            Assert.Equal("Physical SIM", physical[0].Messages.Single().Body);
+            Assert.Equal("eSIM", esim[0].Messages.Single().Body);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LegacyPhoneScopedMessage_IsVisibleAfterIccIdMigration()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "WinSMS.Tests",
+            Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var archive = new XmlMessageArchiveService(
+                NullLogger<XmlMessageArchiveService>.Instance);
+
+            archive.SetArchiveDirectory(directory);
+
+            await archive.SaveMessageAsync(new SmsMessage
+            {
+                PhoneNumber = "+447700900001",
+                LocalPhoneNumber = "+447309320937",
+                Body = "Legacy",
+                Timestamp = DateTimeOffset.Now,
+                Direction = SmsDirection.Incoming,
+                Status = SmsStatus.Received
+            });
+
+            var conversations = await archive.LoadConversationsAsync(
+                "8944200203685005190F",
+                "+447309320937");
+
+            Assert.Single(conversations);
+            Assert.Equal("Legacy", conversations[0].Messages.Single().Body);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void ParseMessageElement_RoundTrip()
     {
