@@ -242,40 +242,27 @@ public class SmsService : ISmsService
     }
 
     public async Task<CellularSubscription?> SwitchCurrentSubscriptionAsync(
-        string targetIccId,
+        bool useEsim,
+        string? targetIccId = null,
         CancellationToken cancellationToken = default)
     {
-        var targetKey = NormalizeIccId(targetIccId);
-        if (string.IsNullOrWhiteSpace(targetKey))
-            throw new ArgumentException("A target ICCID is required.", nameof(targetIccId));
-
+        var targetKey = NormalizeIccId(targetIccId ?? string.Empty);
         var current = GetCurrentSubscription();
-        if (current != null &&
-            NormalizeIccId(current.IccId) == targetKey)
+        var previousKey = NormalizeIccId(current?.IccId ?? string.Empty);
+
+        if (current?.IsEsim == useEsim &&
+            (string.IsNullOrWhiteSpace(targetKey) || previousKey == targetKey))
         {
             return current;
         }
 
-        var targetProfile = _phoneProfiles.GetProfile(targetKey);
-        if (string.IsNullOrWhiteSpace(targetProfile.IccId))
-        {
-            throw new InvalidOperationException(
-                "The selected cellular subscription is not known to WinSMS.");
-        }
-
-        if (!targetProfile.IsEsim.HasValue)
-        {
-            throw new InvalidOperationException(
-                "Windows has not identified whether the selected profile is a SIM or eSIM.");
-        }
-
         _logger.LogInformation(
             "Requesting cellular slot switch. TargetICCID={IccId}; Type={Type}",
-            targetKey,
-            targetProfile.IsEsim.Value ? "eSIM" : "SIM");
+            string.IsNullOrWhiteSpace(targetKey) ? "(unknown)" : targetKey,
+            useEsim ? "eSIM" : "SIM");
 
         var switchResult = await _mobileBroadbandIdentity.SwitchSlotAsync(
-            targetProfile.IsEsim.Value,
+            useEsim,
             cancellationToken);
 
         if (!switchResult.Success)
@@ -284,9 +271,10 @@ public class SmsService : ISmsService
                 switchResult.Error ?? "Windows rejected the SIM/eSIM switch.");
         }
 
-        // Slot remapping is asynchronous at the modem/network layer. Do not
-        // change WinSMS' current profile until Windows MBN confirms the target
-        // subscriber ICCID is actually active.
+        // The netsh command changes the modem slot mapping synchronously, but
+        // the WWAN service and carrier registration update asynchronously.
+        // Keep the old WinSMS identity until fresh MBN subscriber data confirms
+        // that the requested subscription is actually active.
         var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(45);
         Exception? lastError = null;
 
@@ -296,20 +284,30 @@ public class SmsService : ISmsService
 
             try
             {
-                // Force metadata to be recomputed after the modem remaps slots.
                 _metadataIccId = string.Empty;
 
                 var subscription =
                     await SynchronizeCurrentSubscriptionAsync(cancellationToken);
 
-                if (subscription != null &&
-                    NormalizeIccId(subscription.IccId) == targetKey)
+                if (subscription != null)
                 {
-                    _logger.LogInformation(
-                        "Cellular slot switch confirmed. ICCID={IccId}",
-                        targetKey);
+                    var activeKey = NormalizeIccId(subscription.IccId);
 
-                    return subscription;
+                    var targetConfirmed =
+                        !string.IsNullOrWhiteSpace(targetKey)
+                            ? activeKey == targetKey
+                            : !string.IsNullOrWhiteSpace(activeKey) &&
+                              activeKey != previousKey;
+
+                    if (targetConfirmed)
+                    {
+                        _logger.LogInformation(
+                            "Cellular slot switch confirmed. ICCID={IccId}; Type={Type}",
+                            activeKey,
+                            useEsim ? "eSIM" : "SIM");
+
+                        return subscription;
+                    }
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -325,7 +323,7 @@ public class SmsService : ISmsService
 
         throw new TimeoutException(
             lastError == null
-                ? "Windows accepted the SIM/eSIM switch, but the target subscription did not become active within 45 seconds."
+                ? "Windows accepted the SIM/eSIM switch, but the new subscription did not become active within 45 seconds."
                 : $"Windows accepted the SIM/eSIM switch, but activation could not be confirmed: {lastError.Message}");
     }
 
