@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
 using WinSMS.Services;
 using WinSMS.Services.Interfaces;
 
@@ -10,6 +11,7 @@ public partial class ProfilesViewModel : ObservableObject
 {
     private readonly ISmsService _smsService;
     private readonly PhoneProfileService _phoneProfiles;
+    private readonly DispatcherQueue _dispatcher;
 
     public IReadOnlyList<string> ProfileColors { get; } = new[]
     {
@@ -30,8 +32,19 @@ public partial class ProfilesViewModel : ObservableObject
     {
         _smsService = smsService;
         _phoneProfiles = phoneProfiles;
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+
+        _smsService.CurrentPhoneNumberChanged += OnCurrentPhoneNumberChanged;
+        _phoneProfiles.ProfilesChanged += OnProfilesChanged;
+
         Load();
     }
+
+    private void OnCurrentPhoneNumberChanged(object? sender, string phoneNumber)
+        => _dispatcher.TryEnqueue(Load);
+
+    private void OnProfilesChanged(object? sender, EventArgs e)
+        => _dispatcher.TryEnqueue(Load);
 
     public void Load()
     {
