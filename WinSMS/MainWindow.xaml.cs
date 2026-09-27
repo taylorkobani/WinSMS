@@ -47,6 +47,8 @@ public sealed partial class MainWindow : Window
     private bool _closeConfirmed;
     private bool _closeDialogOpen;
     private bool _startupProfileSyncStarted;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _phoneNumberSyncTimer;
+    private bool _phoneNumberSyncInProgress;
 
     public MainWindow()
     {
@@ -98,12 +100,49 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            // If startup synchronization fails, still fall back to the best
-            // current value exposed by the SMS service.
             await EnsureCurrentPhoneProfileAsync(smsService.GetCurrentPhoneNumber());
         }
 
         UpdatePhoneProfile();
+        StartPhoneNumberSyncTimer();
+    }
+
+    private void StartPhoneNumberSyncTimer()
+    {
+        if (_phoneNumberSyncTimer != null)
+            return;
+
+        _phoneNumberSyncTimer = DispatcherQueue.CreateTimer();
+        _phoneNumberSyncTimer.Interval = TimeSpan.FromSeconds(5);
+        _phoneNumberSyncTimer.IsRepeating = true;
+        _phoneNumberSyncTimer.Tick += PhoneNumberSyncTimer_Tick;
+        _phoneNumberSyncTimer.Start();
+    }
+
+    private async void PhoneNumberSyncTimer_Tick(
+        Microsoft.UI.Dispatching.DispatcherQueueTimer sender,
+        object args)
+    {
+        if (_phoneNumberSyncInProgress)
+            return;
+
+        _phoneNumberSyncInProgress = true;
+        try
+        {
+            // DispatcherQueueTimer runs on the UI thread, keeping SmsDevice2
+            // access on the same thread/apartment as the rest of the app.
+            await App.Services
+                .GetRequiredService<ISmsService>()
+                .SynchronizeCurrentPhoneNumberAsync();
+        }
+        catch
+        {
+            // A transient modem state must not affect sending/receiving.
+        }
+        finally
+        {
+            _phoneNumberSyncInProgress = false;
+        }
     }
 
     private IntPtr WindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -333,6 +372,13 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         _appWindow.Closing -= AppWindow_Closing;
+
+        if (_phoneNumberSyncTimer != null)
+        {
+            _phoneNumberSyncTimer.Stop();
+            _phoneNumberSyncTimer.Tick -= PhoneNumberSyncTimer_Tick;
+            _phoneNumberSyncTimer = null;
+        }
 
         var smsService = App.Services.GetRequiredService<ISmsService>();
         smsService.MessageReceived -= OnSmsMessageReceived;
