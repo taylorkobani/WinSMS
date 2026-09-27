@@ -2,7 +2,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
-using Windows.Networking.NetworkOperators;
 using WinSMS.Services;
 
 namespace WinSMS.ViewModels;
@@ -120,22 +119,11 @@ public partial class SettingsViewModel : ObservableObject
                     lines.Add($"Account number: {sms.AccountPhoneNumber ?? "(not reported)"}");
                     lines.Add($"SMSC address: {sms.SmscAddress ?? "(not reported)"}");
 
-                    try
-                    {
-                        var modem = MobileBroadbandModem.FromId(sms.ParentDeviceId);
-                        if (modem != null)
-                        {
-                            lines.Add("MobileBroadbandModem.FromId: SUCCESS");
-                            var deviceInfo = modem.DeviceInformation;
-                            lines.Add($"Radio state: {deviceInfo.CurrentRadioState}");
-                            lines.Add($"SIM ICCID: {deviceInfo.SimIccId ?? "(not reported)"}");
-                            lines.Add($"Subscriber ID available: {!string.IsNullOrWhiteSpace(deviceInfo.SubscriberId)}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        lines.Add($"Mobile broadband access failed: {FormatException(ex)}");
-                    }
+                    // Do not call MobileBroadbandModem.FromId here. That API requires
+                    // restricted cellular identity/control capabilities and can fail below
+                    // the managed exception boundary on ordinary desktop installations.
+                    // SmsDevice2 already exposes the information WinSMS is allowed to use.
+                    lines.Add("Mobile broadband identity details: not queried (restricted Windows API).");
                 }
                 catch (Exception ex)
                 {
