@@ -16,6 +16,7 @@ public class SmsService : ISmsService
 
     private SmsMessageRegistration? _messageRegistration;
     private readonly object _subscriptionSync = new();
+    private readonly SemaphoreSlim _subscriptionRefreshLock = new(1, 1);
     private CellularSubscription? _currentSubscription;
     private string _metadataIccId = string.Empty;
 
@@ -49,126 +50,134 @@ public class SmsService : ISmsService
     public async Task<CellularSubscription?> SynchronizeCurrentSubscriptionAsync(
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        IReadOnlyList<LegacyMbnSubscriberInfo> subscribers;
+        await _subscriptionRefreshLock.WaitAsync(cancellationToken);
         try
         {
-            subscribers = await Task.Run(
-                () => _legacyMbn.GetSubscribers(),
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not enumerate current MBN subscriber information.");
-            subscribers = Array.Empty<LegacyMbnSubscriberInfo>();
-        }
-
-        var subscriber = subscribers.FirstOrDefault(item =>
-            !string.IsNullOrWhiteSpace(item.SimIccId));
-
-        if (subscriber == null)
-        {
-            // Keep SMS transport functional even on hardware where Windows
-            // declines to expose subscriber identity. Without an ICCID we do
-            // not create or select a WinSMS profile.
-            return GetCurrentSubscription();
-        }
-
-        var iccId = NormalizeIccId(subscriber.SimIccId);
-        var previous = GetCurrentSubscription();
-        var storedProfile = _phoneProfiles.GetProfile(iccId);
-        var sameAsPrevious = string.Equals(
-            NormalizeIccId(previous?.IccId ?? string.Empty),
-            iccId,
-            StringComparison.OrdinalIgnoreCase);
-
-        var windowsProfileName = sameAsPrevious
-            ? previous?.WindowsProfileName ?? string.Empty
-            : storedProfile.WindowsProfileName;
-
-        bool? isEsim = sameAsPrevious
-            ? previous?.IsEsim
-            : storedProfile.IsEsim;
-
-        var needMetadata =
-            !string.Equals(
-                NormalizeIccId(_metadataIccId),
-                iccId,
-                StringComparison.OrdinalIgnoreCase);
-
-        if (needMetadata)
-        {
-            try
-            {
-                var readyInfo =
-                    await _mobileBroadbandIdentity.GetReadyInfoAsync(cancellationToken);
-
-                windowsProfileName = readyInfo.WindowsProfileName;
-
-                var matchedSlot = readyInfo.Slots.FirstOrDefault(slot =>
-                    !string.IsNullOrWhiteSpace(slot.IccId) &&
-                    NormalizeIccId(slot.IccId) == iccId);
-
-                if (matchedSlot != null)
-                {
-                    isEsim = matchedSlot.IsEsim;
-                }
-                else if (readyInfo.SelectedSlot != null &&
-                         !string.IsNullOrWhiteSpace(readyInfo.SelectedSlot.IccId) &&
-                         NormalizeIccId(readyInfo.SelectedSlot.IccId) == iccId)
-                {
-                    isEsim = readyInfo.SelectedSlot.IsEsim;
-                }
-                else
-                {
-                    // Best-effort fallback for drivers that expose the eSIM slot
-                    // type but omit per-slot ICCID from readyinfo.
-                    var eSimSlots = readyInfo.Slots
-                        .Where(slot => slot.IsEsim)
-                        .ToList();
-
-                    var physicalSlots = readyInfo.Slots
-                        .Where(slot => !slot.IsEsim)
-                        .ToList();
-
-                    if (eSimSlots.Count == 1 &&
-                        physicalSlots.Any() &&
-                        !string.IsNullOrWhiteSpace(previous?.IccId) &&
-                        NormalizeIccId(previous.IccId) != iccId &&
-                        previous.IsEsim == false)
+            cancellationToken.ThrowIfCancellationRequested();
+            
+                    IReadOnlyList<LegacyMbnSubscriberInfo> subscribers;
+                    try
                     {
-                        isEsim = true;
+                        subscribers = await Task.Run(
+                            () => _legacyMbn.GetSubscribers(),
+                            cancellationToken);
                     }
-                }
-
-                _metadataIccId = iccId;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Could not read SIM/eSIM metadata for ICCID {IccId}.", iccId);
-            }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Could not enumerate current MBN subscriber information.");
+                        subscribers = Array.Empty<LegacyMbnSubscriberInfo>();
+                    }
+            
+                    var subscriber = subscribers.FirstOrDefault(item =>
+                        !string.IsNullOrWhiteSpace(item.SimIccId));
+            
+                    if (subscriber == null)
+                    {
+                        // Keep SMS transport functional even on hardware where Windows
+                        // declines to expose subscriber identity. Without an ICCID we do
+                        // not create or select a WinSMS profile.
+                        return GetCurrentSubscription();
+                    }
+            
+                    var iccId = NormalizeIccId(subscriber.SimIccId);
+                    var previous = GetCurrentSubscription();
+                    var storedProfile = _phoneProfiles.GetProfile(iccId);
+                    var sameAsPrevious = string.Equals(
+                        NormalizeIccId(previous?.IccId ?? string.Empty),
+                        iccId,
+                        StringComparison.OrdinalIgnoreCase);
+            
+                    var windowsProfileName = sameAsPrevious
+                        ? previous?.WindowsProfileName ?? string.Empty
+                        : storedProfile.WindowsProfileName;
+            
+                    bool? isEsim = sameAsPrevious
+                        ? previous?.IsEsim
+                        : storedProfile.IsEsim;
+            
+                    var needMetadata =
+                        !string.Equals(
+                            NormalizeIccId(_metadataIccId),
+                            iccId,
+                            StringComparison.OrdinalIgnoreCase);
+            
+                    if (needMetadata)
+                    {
+                        try
+                        {
+                            var readyInfo =
+                                await _mobileBroadbandIdentity.GetReadyInfoAsync(cancellationToken);
+            
+                            windowsProfileName = readyInfo.WindowsProfileName;
+            
+                            var matchedSlot = readyInfo.Slots.FirstOrDefault(slot =>
+                                !string.IsNullOrWhiteSpace(slot.IccId) &&
+                                NormalizeIccId(slot.IccId) == iccId);
+            
+                            if (matchedSlot != null)
+                            {
+                                isEsim = matchedSlot.IsEsim;
+                            }
+                            else if (readyInfo.SelectedSlot != null &&
+                                     !string.IsNullOrWhiteSpace(readyInfo.SelectedSlot.IccId) &&
+                                     NormalizeIccId(readyInfo.SelectedSlot.IccId) == iccId)
+                            {
+                                isEsim = readyInfo.SelectedSlot.IsEsim;
+                            }
+                            else
+                            {
+                                // Best-effort fallback for drivers that expose the eSIM slot
+                                // type but omit per-slot ICCID from readyinfo.
+                                var eSimSlots = readyInfo.Slots
+                                    .Where(slot => slot.IsEsim)
+                                    .ToList();
+            
+                                var physicalSlots = readyInfo.Slots
+                                    .Where(slot => !slot.IsEsim)
+                                    .ToList();
+            
+                                if (eSimSlots.Count == 1 &&
+                                    physicalSlots.Any() &&
+                                    !string.IsNullOrWhiteSpace(previous?.IccId) &&
+                                    NormalizeIccId(previous.IccId) != iccId &&
+                                    previous.IsEsim == false)
+                                {
+                                    isEsim = true;
+                                }
+                            }
+            
+                            _metadataIccId = iccId;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Could not read SIM/eSIM metadata for ICCID {IccId}.", iccId);
+                        }
+                    }
+            
+                    var subscription = new CellularSubscription
+                    {
+                        IccId = iccId,
+                        SubscriberId = subscriber.SubscriberId?.Trim() ?? string.Empty,
+                        // The telephone number must come from the same subscriber record
+                        // as this ICCID. SmsDevice2.AccountPhoneNumber can be stale after
+                        // Windows switches from a physical SIM to an eSIM.
+                        WindowsPhoneNumber = subscriber.TelephoneNumbers
+                            .FirstOrDefault(number => !string.IsNullOrWhiteSpace(number))?
+                            .Trim() ?? string.Empty,
+                        WindowsProfileName = windowsProfileName,
+                        InterfaceId = subscriber.InterfaceId?.Trim() ?? string.Empty,
+                        IsEsim = isEsim
+                    };
+            
+                    UpdateCurrentSubscription(subscription);
+                    await _phoneProfiles.SynchronizeProfileAsync(subscription);
+            
+                    return subscription;
         }
-
-        var subscription = new CellularSubscription
+        finally
         {
-            IccId = iccId,
-            SubscriberId = subscriber.SubscriberId?.Trim() ?? string.Empty,
-            // The telephone number must come from the same subscriber record
-            // as this ICCID. SmsDevice2.AccountPhoneNumber can be stale after
-            // Windows switches from a physical SIM to an eSIM.
-            WindowsPhoneNumber = subscriber.TelephoneNumbers
-                .FirstOrDefault(number => !string.IsNullOrWhiteSpace(number))?
-                .Trim() ?? string.Empty,
-            WindowsProfileName = windowsProfileName,
-            InterfaceId = subscriber.InterfaceId?.Trim() ?? string.Empty,
-            IsEsim = isEsim
-        };
-
-        UpdateCurrentSubscription(subscription);
-        await _phoneProfiles.SynchronizeProfileAsync(subscription);
-
-        return subscription;
+            _subscriptionRefreshLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(
