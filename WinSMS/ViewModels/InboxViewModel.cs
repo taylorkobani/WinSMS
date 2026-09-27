@@ -14,6 +14,7 @@ public partial class InboxViewModel : ObservableObject
     private readonly IMessageArchiveService _archive;
     private readonly DispatcherQueue _dispatcher;
     private readonly BlockedNumberService _blockedNumbers;
+    private readonly PhoneProfileService _phoneProfiles;
 
     // Compatibility aliases retained for WinUI incremental XAML compilation.
     // The Inbox UI itself is conversation-based.
@@ -52,14 +53,20 @@ public partial class InboxViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SendReplyCommand))]
     private bool _isSending;
 
-    public InboxViewModel(ISmsService smsService, IMessageArchiveService archive, BlockedNumberService blockedNumbers)
+    public InboxViewModel(
+        ISmsService smsService,
+        IMessageArchiveService archive,
+        BlockedNumberService blockedNumbers,
+        PhoneProfileService phoneProfiles)
     {
         _smsService = smsService;
         _archive = archive;
         _blockedNumbers = blockedNumbers;
+        _phoneProfiles = phoneProfiles;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
+
         _smsService.MessageReceived += OnMessageReceived;
-        _smsService.CurrentPhoneNumberChanged += OnCurrentPhoneNumberChanged;
+        _smsService.CurrentSubscriptionChanged += OnCurrentSubscriptionChanged;
     }
 
     public Task LoadAsync() => RefreshAsync();
@@ -86,33 +93,49 @@ public partial class InboxViewModel : ObservableObject
     {
         IsLoading = true;
         StatusMessage = null;
+
         try
         {
             var selectedNumber = SelectedConversation?.PhoneNumber;
-            var localPhoneNumber = _smsService.GetCurrentPhoneNumber();
-            if (string.IsNullOrWhiteSpace(localPhoneNumber))
+            var subscription =
+                await _smsService.SynchronizeCurrentSubscriptionAsync();
+
+            if (subscription == null ||
+                string.IsNullOrWhiteSpace(subscription.IccId))
             {
-                StatusMessage = "Windows did not provide a phone number for the current SMS account.";
+                StatusMessage =
+                    "Windows did not provide an ICCID for the current cellular subscription.";
+
                 Conversations.Clear();
                 HasConversations = false;
                 SelectedConversation = null;
                 return;
             }
 
-            var conversations = await _archive.LoadConversationsAsync(localPhoneNumber);
+            var profile = _phoneProfiles.GetProfile(subscription.IccId);
+
+            var conversations = await _archive.LoadConversationsAsync(
+                subscription.IccId,
+                profile.PhoneNumber);
+
             Conversations.Clear();
+
             foreach (var conversation in conversations)
                 Conversations.Add(conversation);
+
             HasConversations = Conversations.Count > 0;
+
             SelectedConversation = selectedNumber == null
                 ? Conversations.FirstOrDefault()
-                : Conversations.FirstOrDefault(c =>
-                    NormalizePhoneNumber(c.PhoneNumber) == NormalizePhoneNumber(selectedNumber))
+                : Conversations.FirstOrDefault(conversation =>
+                    NormalizePhoneNumber(conversation.PhoneNumber) ==
+                    NormalizePhoneNumber(selectedNumber))
                   ?? Conversations.FirstOrDefault();
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed to refresh conversations: {ex.Message}";
+            StatusMessage =
+                $"Failed to refresh conversations: {ex.Message}";
         }
         finally
         {
@@ -131,7 +154,8 @@ public partial class InboxViewModel : ObservableObject
     {
         if (SelectedConversation == null || string.IsNullOrWhiteSpace(ReplyBody)) return;
 
-        var number = SelectedConversation.PhoneNumber;
+        var conversation = SelectedConversation;
+        var number = conversation.PhoneNumber;
         var body = ReplyBody.Trim();
         IsSending = true;
         StatusMessage = null;
@@ -141,12 +165,12 @@ public partial class InboxViewModel : ObservableObject
             if (sent.Status == SmsStatus.Sent)
             {
                 ReplyBody = string.Empty;
-                AddMessageToConversation(SelectedConversation, sent);
+                AddMessageToConversation(conversation, sent);
             }
             else
             {
                 StatusMessage = sent.Error ?? "Failed to send message.";
-                AddMessageToConversation(SelectedConversation, sent);
+                AddMessageToConversation(conversation, sent);
             }
         }
         catch (Exception ex)
@@ -191,7 +215,10 @@ public partial class InboxViewModel : ObservableObject
         try
         {
             var number = conversation.PhoneNumber;
-            await _archive.DeleteConversationAsync(conversation.LocalPhoneNumber, number);
+            await _archive.DeleteConversationAsync(
+                conversation.LocalSubscriptionId,
+                number,
+                conversation.LocalPhoneNumber);
             var wasSelected = ReferenceEquals(SelectedConversation, conversation);
             Conversations.Remove(conversation);
             HasConversations = Conversations.Count > 0;
@@ -224,7 +251,9 @@ public partial class InboxViewModel : ObservableObject
         }
     }
 
-    private void OnCurrentPhoneNumberChanged(object? sender, string phoneNumber)
+    private void OnCurrentSubscriptionChanged(
+        object? sender,
+        CellularSubscription subscription)
     {
         _dispatcher.TryEnqueue(async () => await RefreshAsync());
     }
@@ -233,10 +262,15 @@ public partial class InboxViewModel : ObservableObject
     {
         _dispatcher.TryEnqueue(() =>
         {
-            var currentLocalKey = NormalizePhoneNumber(_smsService.GetCurrentPhoneNumber());
-            if (string.IsNullOrWhiteSpace(currentLocalKey) ||
-                NormalizePhoneNumber(message.LocalPhoneNumber) != currentLocalKey)
+            var currentSubscription = _smsService.GetCurrentSubscription();
+            var currentSubscriptionKey =
+                NormalizeIccId(currentSubscription?.IccId ?? string.Empty);
+
+            if (string.IsNullOrWhiteSpace(currentSubscriptionKey) ||
+                NormalizeIccId(message.LocalSubscriptionId) != currentSubscriptionKey)
+            {
                 return;
+            }
 
             var key = NormalizePhoneNumber(message.PhoneNumber);
             var conversation = Conversations.FirstOrDefault(
@@ -247,6 +281,7 @@ public partial class InboxViewModel : ObservableObject
                 conversation = new SmsConversation
                 {
                     PhoneNumber = message.PhoneNumber,
+                    LocalSubscriptionId = message.LocalSubscriptionId,
                     LocalPhoneNumber = message.LocalPhoneNumber
                 };
                 conversation.Messages.Add(message);
@@ -270,6 +305,12 @@ public partial class InboxViewModel : ObservableObject
 
         conversation.Messages.Add(message);
     }
+
+    private static string NormalizeIccId(string value)
+        => new string((value ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
 
     private static string NormalizePhoneNumber(string phoneNumber)
     {
