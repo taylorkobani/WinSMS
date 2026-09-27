@@ -577,6 +577,9 @@ public sealed partial class MainWindow : Window
         PhoneProfilePill.Visibility = Visibility.Visible;
         PhoneProfilePill.IsHitTestVisible = false;
         PhoneProfileName.Text = "Switching...";
+        SubscriptionSwitchOverlay.Visibility = Visibility.Visible;
+
+        string? switchError = null;
 
         try
         {
@@ -589,23 +592,25 @@ public sealed partial class MainWindow : Window
                     : request.TargetIccId);
 
             await EnsureCurrentSubscriptionProfileAsync(subscription);
-            UpdatePhoneProfile();
         }
         catch (OperationCanceledException)
         {
-            UpdatePhoneProfile();
+            // Restore the normal UI below.
         }
         catch (Exception ex)
         {
-            UpdatePhoneProfile();
-            await ShowSubscriptionSwitchErrorAsync(ex.Message);
+            switchError = ex.Message;
         }
         finally
         {
             _subscriptionSwitchInProgress = false;
+            SubscriptionSwitchOverlay.Visibility = Visibility.Collapsed;
             PhoneProfilePill.IsHitTestVisible = true;
             UpdatePhoneProfile();
         }
+
+        if (!string.IsNullOrWhiteSpace(switchError))
+            await ShowSubscriptionSwitchErrorAsync(switchError);
     }
 
     private async Task ShowSubscriptionSwitchErrorAsync(string message)
