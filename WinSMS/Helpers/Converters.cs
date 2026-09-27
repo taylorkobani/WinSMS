@@ -39,6 +39,16 @@ public class NullToBoolConverter : IValueConverter
         => throw new NotImplementedException();
 }
 
+/// <summary>Converts true to Visible and false to Collapsed.</summary>
+public class BoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+        => value is bool flag && flag ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
+        => throw new NotImplementedException();
+}
+
 /// <summary>Converts false to Visible and true to Collapsed.</summary>
 public class InverseBoolToVisibilityConverter : IValueConverter
 {
