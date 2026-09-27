@@ -11,7 +11,7 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <ListView x:Name="MessageList" Grid.Column="0" ItemsSource="{x:Bind ViewModel.Conversations}"
                       SelectedItem="{x:Bind ViewModel.SelectedConversation, Mode=TwoWay}" SelectionMode="Single"
-                      Background="{ThemeResource LayerFillColorDefaultBrush}"
+                      Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:SmsConversation">
@@ -58,7 +58,7 @@
                        VerticalAlignment="Center"
                        Opacity="0.65"
                        IsHitTestVisible="False"
-                       Visibility="{x:Bind ViewModel.SelectedConversation, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}"/>
+                       Visibility="{x:Bind ViewModel.Conversations, Converter={StaticResource EmptyCollectionToVisibilityConverter}, Mode=OneWay}"/>
 
             <Grid Grid.Column="1" Padding="16,16,16,6">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
