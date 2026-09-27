@@ -81,7 +81,7 @@ public sealed partial class MainWindow : Window
 
         // Do not paint the previously cached profile before Windows has had a
         // chance to refresh the current SMS identity for this process.
-        PhoneProfilePill.Visibility = Visibility.Collapsed;
+        PhoneProfileButton.Visibility = Visibility.Collapsed;
         Activated += MainWindow_Activated;
     }
 
@@ -574,8 +574,8 @@ public sealed partial class MainWindow : Window
         }
 
         _subscriptionSwitchInProgress = true;
-        PhoneProfilePill.Visibility = Visibility.Visible;
-        PhoneProfilePill.IsHitTestVisible = false;
+        PhoneProfileButton.Visibility = Visibility.Visible;
+        PhoneProfileButton.IsHitTestVisible = false;
         PhoneProfileName.Text = "Switching...";
         SubscriptionSwitchOverlay.Visibility = Visibility.Visible;
 
@@ -605,7 +605,7 @@ public sealed partial class MainWindow : Window
         {
             _subscriptionSwitchInProgress = false;
             SubscriptionSwitchOverlay.Visibility = Visibility.Collapsed;
-            PhoneProfilePill.IsHitTestVisible = true;
+            PhoneProfileButton.IsHitTestVisible = true;
             UpdatePhoneProfile();
         }
 
@@ -645,7 +645,7 @@ public sealed partial class MainWindow : Window
         if (subscription == null ||
             string.IsNullOrWhiteSpace(subscription.IccId))
         {
-            PhoneProfilePill.Visibility = Visibility.Collapsed;
+            PhoneProfileButton.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -668,9 +668,9 @@ public sealed partial class MainWindow : Window
                         : $"{simType} •••{Tail(subscription.IccId, 6)}";
 
         PhoneProfileName.Text = $"{displayName} · {simType}";
-        PhoneProfilePill.Background =
+        PhoneProfileButton.Background =
             new SolidColorBrush(ParseColor(profile.Color));
-        PhoneProfilePill.Visibility = Visibility.Visible;
+        PhoneProfileButton.Visibility = Visibility.Visible;
     }
 
     private static string Tail(string value, int length)
