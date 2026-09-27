@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
 using Windows.Networking.Connectivity;
-using Windows.Networking.NetworkOperators;
 using WinSMS.Models;
 using WinSMS.Services.Interfaces;
 
@@ -48,26 +47,18 @@ public class SmsService : ISmsService
 
     public async Task<string> SynchronizeCurrentPhoneNumberAsync(CancellationToken cancellationToken = default)
     {
-        // Force a fresh Windows SMS enumeration at startup, then sample the
-        // active device a few times while the mobile-broadband stack settles.
-        // This avoids immediately presenting a profile based on a stale value
-        // returned during process construction.
-        try
-        {
-            await DeviceInformation.FindAllAsync(SmsDevice2.GetDeviceSelector())
-                .AsTask(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not force SMS device enumeration during startup synchronization.");
-        }
-
+        // Windows can briefly expose the previous line identity while the
+        // mobile-broadband stack is settling. Re-enumerate the SMS devices and
+        // create fresh SmsDevice2 instances from their SMS device IDs instead
+        // of consulting MobileBroadbandModem APIs (which require restricted
+        // capabilities and are not appropriate for WinSMS).
         var delays = new[]
         {
             TimeSpan.Zero,
-            TimeSpan.FromMilliseconds(300),
-            TimeSpan.FromMilliseconds(700),
-            TimeSpan.FromMilliseconds(1200)
+            TimeSpan.FromMilliseconds(350),
+            TimeSpan.FromMilliseconds(750),
+            TimeSpan.FromMilliseconds(1250),
+            TimeSpan.FromMilliseconds(2000)
         };
 
         foreach (var delay in delays)
@@ -77,7 +68,66 @@ public class SmsService : ISmsService
             if (delay > TimeSpan.Zero)
                 await Task.Delay(delay, cancellationToken);
 
-            RefreshCurrentPhoneNumber();
+            try
+            {
+                var defaultDevice = SmsDevice2.GetDefault();
+                var defaultDeviceId = defaultDevice?.DeviceId;
+
+                var devices = await DeviceInformation.FindAllAsync(SmsDevice2.GetDeviceSelector())
+                    .AsTask(cancellationToken);
+
+                SmsDevice2? freshDefault = null;
+                SmsDevice2? readyCandidate = null;
+
+                foreach (var info in devices)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    SmsDevice2? smsDevice;
+                    try
+                    {
+                        smsDevice = SmsDevice2.FromId(info.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Could not open enumerated SMS device {DeviceId}.", info.Id);
+                        continue;
+                    }
+
+                    if (smsDevice == null)
+                        continue;
+
+                    if (!string.IsNullOrWhiteSpace(defaultDeviceId) &&
+                        string.Equals(smsDevice.DeviceId, defaultDeviceId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        freshDefault = smsDevice;
+                        break;
+                    }
+
+                    if (readyCandidate == null &&
+                        smsDevice.DeviceStatus == SmsDeviceStatus.Ready &&
+                        !string.IsNullOrWhiteSpace(smsDevice.AccountPhoneNumber))
+                    {
+                        readyCandidate = smsDevice;
+                    }
+                }
+
+                var selected = freshDefault ?? readyCandidate ?? defaultDevice;
+                if (selected != null)
+                {
+                    ObserveSmsDevice(selected);
+                    UpdateCurrentPhoneNumber(selected.AccountPhoneNumber);
+                }
+                else
+                {
+                    UpdateCurrentPhoneNumber(string.Empty);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not synchronize the current Windows SMS phone number.");
+                RefreshCurrentPhoneNumber();
+            }
         }
 
         return GetCurrentPhoneNumber();
@@ -198,16 +248,7 @@ public class SmsService : ISmsService
                 device?.DeviceId,
                 StringComparison.OrdinalIgnoreCase);
 
-            if (deviceChanged)
-            {
-                if (_observedSmsDevice != null)
-                    _observedSmsDevice.DeviceStatusChanged -= OnSmsDeviceStatusChanged;
-
-                _observedSmsDevice = device;
-
-                if (_observedSmsDevice != null)
-                    _observedSmsDevice.DeviceStatusChanged += OnSmsDeviceStatusChanged;
-            }
+            ObserveSmsDevice(device);
 
             if (device == null)
             {
@@ -215,7 +256,7 @@ public class SmsService : ISmsService
                 return;
             }
 
-            var number = GetBestAvailablePhoneNumber(device);
+            var number = device.AccountPhoneNumber?.Trim() ?? string.Empty;
 
             // A newly selected SMS device with no reported number should not
             // leave the previous line marked as current.
@@ -228,31 +269,24 @@ public class SmsService : ISmsService
         }
     }
 
-    private string GetBestAvailablePhoneNumber(SmsDevice2 device)
+    private void ObserveSmsDevice(SmsDevice2? device)
     {
-        var smsNumber = device.AccountPhoneNumber?.Trim() ?? string.Empty;
-
-        // On some systems AccountPhoneNumber can briefly reflect the previous
-        // SIM/line after a Windows mobile-broadband change. The modem device
-        // information can expose the MSISDN/MDN as an additional source.
-        try
+        if (string.Equals(
+                _observedSmsDevice?.DeviceId,
+                device?.DeviceId,
+                StringComparison.OrdinalIgnoreCase))
         {
-            var modem = MobileBroadbandModem.FromId(device.ParentDeviceId);
-            var modemNumber = modem?.DeviceInformation?.TelephoneNumbers?
-                .FirstOrDefault(number => !string.IsNullOrWhiteSpace(number))?
-                .Trim();
-
-            if (!string.IsNullOrWhiteSpace(modemNumber))
-                return modemNumber;
-        }
-        catch (Exception ex)
-        {
-            // This property can be restricted on some Windows configurations.
-            // Fall back to SmsDevice2.AccountPhoneNumber in that case.
-            _logger.LogDebug(ex, "Mobile-broadband telephone number was not accessible.");
+            _observedSmsDevice = device ?? _observedSmsDevice;
+            return;
         }
 
-        return smsNumber;
+        if (_observedSmsDevice != null)
+            _observedSmsDevice.DeviceStatusChanged -= OnSmsDeviceStatusChanged;
+
+        _observedSmsDevice = device;
+
+        if (_observedSmsDevice != null)
+            _observedSmsDevice.DeviceStatusChanged += OnSmsDeviceStatusChanged;
     }
 
     private void OnSmsDeviceStatusChanged(SmsDevice2 sender, object args)
