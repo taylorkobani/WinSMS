@@ -12,11 +12,11 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Send SMS** through the default Windows `SmsDevice2`.
 - **Receive SMS** using a Windows `SmsMessageRegistration`.
 - **Conversation view** groups incoming and outgoing messages by remote number.
-- **Local-line separation** keeps conversations associated with the SIM/local number that sent or received them.
+- **Subscription separation by ICCID** keeps conversations associated with the actual SIM/eSIM subscription even when Windows does not expose its phone number.
 - **Reply from a conversation** without opening a separate compose workflow.
 - **Persistent local archive** stores conversations as XML files.
 - **Number blocking** discards future incoming messages from blocked numbers before WinSMS archives or displays them.
-- **Phone profiles** assign a friendly name and colour to local SMS numbers.
+- **SIM/eSIM profiles** are keyed by ICCID and can store a WinSMS name, colour, Windows connection-profile name, SIM type, and optional phone number.
 - **eSIM-aware number detection** supplements `SmsDevice2.AccountPhoneNumber` with Windows mobile-broadband ready information when the SMS API reports a stale or missing number after a SIM/eSIM switch.
 - **System tray support** keeps WinSMS running when the main window is minimized.
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
@@ -66,7 +66,7 @@ dotnet build WinSMS.sln
 
 ### Conversations
 
-The **Conversations** page displays conversations for the currently detected local SMS number. Selecting a conversation opens its message history and reply composer.
+The **Conversations** page displays conversations for the currently detected cellular subscription (ICCID). Selecting a conversation opens its message history and reply composer. Phone number is not used as the local subscription identity.
 
 Incoming messages are added to the corresponding conversation while the application is running. Outgoing messages are archived with their send status, including failed attempts.
 
@@ -91,12 +91,18 @@ When an incoming message is from a blocked number, WinSMS acknowledges the Windo
 
 ### Profiles
 
-The **Profiles** page associates a local SMS number with:
+The **Profiles** page identifies each local cellular subscription by **ICCID**, not by phone number. A profile stores:
 
-- a friendly display name; and
-- a profile colour.
+- a user-defined WinSMS profile name;
+- profile colour;
+- SIM/eSIM classification when Windows exposes enough slot information;
+- Windows mobile-broadband connection profile name (display metadata only);
+- subscriber ID/IMSI metadata; and
+- an optional phone number.
 
-The current profile is reflected in the application title area. Profiles are useful on systems where WinSMS may be used with different SIMs or local numbers.
+When Windows reports the phone number for the current ICCID, WinSMS overwrites the stored number with that Windows value and makes it read-only. When Windows does not report a number (common with some eSIM/carrier combinations), the user can enter the phone number manually.
+
+The current profile is reflected in the application title area. ICCID remains the identity key regardless of whether a phone number is available.
 
 ### Notification area
 
@@ -133,7 +139,7 @@ Current data includes:
 
 | Data | Location |
 | --- | --- |
-| Conversations/messages | `%AppData%\WinSMS\Messages\conversation-<local>-<remote>.xml` |
+| Conversations/messages | `%AppData%\WinSMS\Messages\conversation-sub-<subscription-hash>-<remote>.xml` (new ICCID-scoped files; legacy phone-scoped files remain readable) |
 | Phone profiles | `%AppData%\WinSMS\phone-profiles.json` |
 | Blocked numbers | `%AppData%\WinSMS\blocked-numbers.json` |
 
@@ -197,12 +203,20 @@ At startup, `SmsService` recreates the `WinSMS.TextMessages` registration rather
 
 For an accepted incoming text message, WinSMS:
 
-1. reads the sender, recipient/local number, body, and timestamp;
+1. reads the sender, recipient/local number when available, body, timestamp, and current subscription ICCID;
 2. acknowledges the Windows SMS event;
 3. checks the sender against the blocked-number service;
 4. discards the message if blocked;
 5. otherwise writes it to the XML archive; and
 6. raises `MessageReceived` so the active UI can update.
+
+### ICCID identity and eSIMs
+
+Windows can route SMS through a selected eSIM while `SmsDevice2.AccountPhoneNumber` continues to report metadata from another SIM. WinSMS therefore does **not** use `AccountPhoneNumber` as the subscription identity.
+
+WinSMS re-enumerates Windows Mobile Broadband subscriber information and uses the current **ICCID** as the stable identity. Telephone numbers are optional metadata tied to that ICCID. This allows an eSIM to remain a distinct profile even when its MSISDN/phone number is not exposed by Windows.
+
+Existing phone-number-keyed profiles are migrated when the corresponding SIM is next detected and Windows reports a matching number. Existing message archives without an ICCID remain readable through the profile's legacy phone-number metadata.
 
 ## Message archive
 
