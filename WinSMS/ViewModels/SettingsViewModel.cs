@@ -83,6 +83,26 @@ public partial class SettingsViewModel : ObservableObject
 
             var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync();
             lines.Add($"Mobile broadband interface(s): {(readyInfo.InterfaceNames.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.InterfaceNames))}");
+
+            var legacyNumbers = readyInfo.LegacySubscribers
+                .SelectMany(subscriber => subscriber.TelephoneNumbers)
+                .Where(number => !string.IsNullOrWhiteSpace(number))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            lines.Add($"Win32 MBN subscriber number(s): {(legacyNumbers.Count == 0 ? "(not reported)" : string.Join(", ", legacyNumbers))}");
+
+            if (readyInfo.SelectedSlot != null)
+            {
+                lines.Add($"Selected SIM slot: {readyInfo.SelectedSlot.SlotIndex}" +
+                          (readyInfo.SelectedSlot.IsEsim ? " (eSIM)" : string.Empty));
+                lines.Add($"Selected slot state: {(string.IsNullOrWhiteSpace(readyInfo.SelectedSlot.State) ? "(not reported)" : readyInfo.SelectedSlot.State)}");
+            }
+            else
+            {
+                lines.Add("Selected SIM slot: (not reported)");
+            }
+
             lines.Add($"Mobile broadband telephone number(s): {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
             if (!string.IsNullOrWhiteSpace(readyInfo.Error))
                 lines.Add($"Mobile broadband ready-info: {readyInfo.Error}");
@@ -140,7 +160,51 @@ public partial class SettingsViewModel : ObservableObject
             lines.Add("");
             lines.Add("Mobile broadband ready-info:");
             lines.Add($"Interface(s): {(readyInfo.InterfaceNames.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.InterfaceNames))}");
-            lines.Add($"Telephone number(s): {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
+
+            lines.Add("Win32 MBN subscriber data:");
+            if (readyInfo.LegacySubscribers.Count == 0)
+            {
+                lines.Add("- (not available)");
+            }
+            else
+            {
+                foreach (var subscriber in readyInfo.LegacySubscribers)
+                {
+                    lines.Add($"- Interface ID: {(string.IsNullOrWhiteSpace(subscriber.InterfaceId) ? "(not reported)" : subscriber.InterfaceId)}");
+                    lines.Add($"  ICCID: {(string.IsNullOrWhiteSpace(subscriber.SimIccId) ? "(not reported)" : subscriber.SimIccId)}");
+                    lines.Add($"  Subscriber ID: {(string.IsNullOrWhiteSpace(subscriber.SubscriberId) ? "(not reported)" : subscriber.SubscriberId)}");
+                    lines.Add($"  Telephone number(s): {(subscriber.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", subscriber.TelephoneNumbers))}");
+                    if (!string.IsNullOrWhiteSpace(subscriber.Error))
+                        lines.Add($"  Error: {subscriber.Error}");
+                }
+            }
+
+            lines.Add($"Selected SIM slot: {(readyInfo.SelectedSlot == null ? "(not reported)" : readyInfo.SelectedSlot.SlotIndex.ToString())}");
+            if (readyInfo.SelectedSlot != null)
+            {
+                lines.Add($"Selected slot type: {(readyInfo.SelectedSlot.IsEsim ? "eSIM" : "physical/unknown")}");
+                lines.Add($"Selected slot state: {(string.IsNullOrWhiteSpace(readyInfo.SelectedSlot.State) ? "(not reported)" : readyInfo.SelectedSlot.State)}");
+                lines.Add($"Selected slot telephone number(s): {(readyInfo.SelectedSlot.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.SelectedSlot.TelephoneNumbers))}");
+            }
+
+            lines.Add("Slot probes:");
+            if (readyInfo.Slots.Count == 0)
+            {
+                lines.Add("- (none reported)");
+            }
+            else
+            {
+                foreach (var slot in readyInfo.Slots)
+                {
+                    lines.Add($"- Slot {slot.SlotIndex}: selected={slot.IsSelected}, eSIM={slot.IsEsim}, readyinfo exit={slot.ReadyInfoExitCode}");
+                    lines.Add($"  State: {(string.IsNullOrWhiteSpace(slot.State) ? "(not reported)" : slot.State)}");
+                    lines.Add($"  Telephone number(s): {(slot.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", slot.TelephoneNumbers))}");
+                    if (!string.IsNullOrWhiteSpace(slot.ReadyInfoError))
+                        lines.Add($"  Error: {slot.ReadyInfoError}");
+                }
+            }
+
+            lines.Add($"Telephone number(s) selected by WinSMS identity resolver: {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
             if (!string.IsNullOrWhiteSpace(readyInfo.Error))
                 lines.Add($"Query status: {readyInfo.Error}");
 
