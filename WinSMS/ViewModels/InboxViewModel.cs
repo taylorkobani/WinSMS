@@ -59,6 +59,7 @@ public partial class InboxViewModel : ObservableObject
         _blockedNumbers = blockedNumbers;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _smsService.MessageReceived += OnMessageReceived;
+        _smsService.CurrentPhoneNumberChanged += OnCurrentPhoneNumberChanged;
     }
 
     public Task LoadAsync() => RefreshAsync();
@@ -221,6 +222,11 @@ public partial class InboxViewModel : ObservableObject
         {
             StatusMessage = $"Failed to delete message: {ex.Message}";
         }
+    }
+
+    private void OnCurrentPhoneNumberChanged(object? sender, string phoneNumber)
+    {
+        _dispatcher.TryEnqueue(async () => await RefreshAsync());
     }
 
     private void OnMessageReceived(object? sender, SmsMessage message)
