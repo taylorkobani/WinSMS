@@ -5,7 +5,9 @@ public class SmsMessage
     public Guid Id { get; set; } = Guid.NewGuid();
     // Remote party (sender for incoming messages, recipient for outgoing messages).
     public string PhoneNumber { get; set; } = string.Empty;
-    // Local cellular account/phone number that sent or received this message.
+    // Stable local cellular subscription identity (ICCID).
+    public string LocalSubscriptionId { get; set; } = string.Empty;
+    // Optional local phone number metadata. May be unavailable for eSIMs.
     public string LocalPhoneNumber { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
