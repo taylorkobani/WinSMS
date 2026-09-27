@@ -463,33 +463,60 @@ public sealed class MobileBroadbandIdentityService
 
     internal static int? ParseMappedSlotIndex(string output)
     {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        // Windows commonly emits:
+        // "The slot index that is currently mapped on interface Mobile: ----- 0"
+        // or:
+        // "Slot mapping : 1"
+        //
+        // Parse these directly from the complete output first so formatting,
+        // separator dashes and line wrapping do not cause a false negative.
+        var explicitMatch = System.Text.RegularExpressions.Regex.Match(
+            output,
+            @"currently\s+mapped[^\r\n]*?(\d+)\s*(?:\r?$|$)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        if (explicitMatch.Success &&
+            int.TryParse(explicitMatch.Groups[1].Value, out var explicitIndex))
+        {
+            return explicitIndex;
+        }
+
+        var mappingMatch = System.Text.RegularExpressions.Regex.Match(
+            output,
+            @"slot\s+mapping[^\r\n]*?(\d+)\s*(?:\r?$|$)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        if (mappingMatch.Success &&
+            int.TryParse(mappingMatch.Groups[1].Value, out var mappingIndex))
+        {
+            return mappingIndex;
+        }
+
+        // Fallback for vendor-specific output: inspect any line mentioning a
+        // mapped/selected/default slot and take its trailing integer.
         foreach (var rawLine in SplitLines(output))
         {
             var line = rawLine.Trim();
+
             if (!line.Contains("slot", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            // Known Windows outputs include:
-            //   "Slot mapping : 1"
-            //   "The slot index that is currently mapped on interface Mobile: ---- 1"
             if (!line.Contains("map", StringComparison.OrdinalIgnoreCase) &&
                 !line.Contains("select", StringComparison.OrdinalIgnoreCase) &&
                 !line.Contains("default", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            var match = SlotIndexRegex.Match(line);
-            if (match.Success && int.TryParse(match.Groups[1].Value, out var index))
-                return index;
-
-            var colon = line.LastIndexOf(':');
-            var tail = colon >= 0 ? line[(colon + 1)..] : line;
-
             var trailingNumber = System.Text.RegularExpressions.Regex.Match(
-                tail,
-                @"(?<!\d)(\d+)\s*$");
+                line,
+                @"(\d+)\D*$");
 
             if (trailingNumber.Success &&
-                int.TryParse(trailingNumber.Groups[1].Value, out index))
+                int.TryParse(trailingNumber.Groups[1].Value, out var index))
             {
                 return index;
             }
