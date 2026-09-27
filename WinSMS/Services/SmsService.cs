@@ -167,6 +167,33 @@ public class SmsService : ISmsService
                             {
                                 isEsim = true;
                             }
+                            else if (eSimSlots.Count == 1 &&
+                                     physicalSlots.Any() &&
+                                     string.IsNullOrWhiteSpace(subscriberPhone))
+                            {
+                                // Cold-start fallback for the common Windows
+                                // dual-SIM behaviour seen on this class of modem:
+                                // SmsDevice2 can keep exposing the physical
+                                // SIM's phone number while MBN reports a
+                                // different active ICCID with no MSISDN.
+                                var smsApiNumber =
+                                    SmsDevice2.GetDefault()?
+                                        .AccountPhoneNumber?
+                                        .Trim() ?? string.Empty;
+
+                                var stalePhysicalProfile =
+                                    _phoneProfiles.GetProfiles()
+                                        .FirstOrDefault(profile =>
+                                            NormalizeIccId(profile.IccId) != iccId &&
+                                            !string.IsNullOrWhiteSpace(
+                                                profile.PhoneNumber) &&
+                                            PhoneNumbersEquivalent(
+                                                profile.PhoneNumber,
+                                                smsApiNumber));
+
+                                if (stalePhysicalProfile != null)
+                                    isEsim = true;
+                            }
                         }
                     }
 
