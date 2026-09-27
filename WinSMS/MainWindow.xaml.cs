@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
     private bool _startupProfileSyncStarted;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _phoneNumberSyncTimer;
     private bool _phoneNumberSyncInProgress;
+    private bool _subscriptionSwitchInProgress;
 
     public MainWindow()
     {
@@ -124,7 +125,7 @@ public sealed partial class MainWindow : Window
         Microsoft.UI.Dispatching.DispatcherQueueTimer sender,
         object args)
     {
-        if (_phoneNumberSyncInProgress)
+        if (_phoneNumberSyncInProgress || _subscriptionSwitchInProgress)
             return;
 
         _phoneNumberSyncInProgress = true;
@@ -457,6 +458,128 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    private void PhoneProfilePill_Tapped(
+        object sender,
+        Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (_subscriptionSwitchInProgress)
+            return;
+
+        var smsService = App.Services.GetRequiredService<ISmsService>();
+        var phoneProfiles =
+            App.Services.GetRequiredService<PhoneProfileService>();
+
+        var current = smsService.GetCurrentSubscription();
+        if (current == null)
+            return;
+
+        var profiles = phoneProfiles.GetProfiles();
+
+        var simProfile = profiles.FirstOrDefault(profile => profile.IsEsim == false);
+        var esimProfile = profiles.FirstOrDefault(profile => profile.IsEsim == true);
+
+        var currentProfile = phoneProfiles.GetProfile(current.IccId);
+        var currentIsEsim = currentProfile.IsEsim ?? current.IsEsim;
+
+        var flyout = new MenuFlyout();
+
+        flyout.Items.Add(CreateSubscriptionMenuItem(
+            "SIM",
+            useEsim: false,
+            simProfile?.IccId,
+            currentIsEsim == false));
+
+        flyout.Items.Add(CreateSubscriptionMenuItem(
+            "eSIM",
+            useEsim: true,
+            esimProfile?.IccId,
+            currentIsEsim == true));
+
+        flyout.ShowAt(PhoneProfilePill);
+    }
+
+    private ToggleMenuFlyoutItem CreateSubscriptionMenuItem(
+        string label,
+        bool useEsim,
+        string? targetIccId,
+        bool isCurrent)
+    {
+        var item = new ToggleMenuFlyoutItem
+        {
+            Text = label,
+            IsChecked = isCurrent,
+            IsEnabled = !isCurrent && !_subscriptionSwitchInProgress,
+            Tag = new SubscriptionSwitchRequest(
+                useEsim,
+                targetIccId ?? string.Empty,
+                label)
+        };
+
+        item.Click += SubscriptionMenuItem_Click;
+        return item;
+    }
+
+    private async void SubscriptionMenuItem_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_subscriptionSwitchInProgress ||
+            sender is not ToggleMenuFlyoutItem item ||
+            item.Tag is not SubscriptionSwitchRequest request)
+        {
+            return;
+        }
+
+        _subscriptionSwitchInProgress = true;
+        PhoneProfileName.Text = $"Switching to {request.Label}…";
+
+        try
+        {
+            var smsService = App.Services.GetRequiredService<ISmsService>();
+
+            var subscription = await smsService.SwitchCurrentSubscriptionAsync(
+                request.UseEsim,
+                string.IsNullOrWhiteSpace(request.TargetIccId)
+                    ? null
+                    : request.TargetIccId);
+
+            await EnsureCurrentSubscriptionProfileAsync(subscription);
+            UpdatePhoneProfile();
+        }
+        catch (OperationCanceledException)
+        {
+            UpdatePhoneProfile();
+        }
+        catch (Exception ex)
+        {
+            UpdatePhoneProfile();
+            await ShowSubscriptionSwitchErrorAsync(ex.Message);
+        }
+        finally
+        {
+            _subscriptionSwitchInProgress = false;
+        }
+    }
+
+    private async Task ShowSubscriptionSwitchErrorAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Could not switch SIM",
+            Content = message,
+            CloseButtonText = "OK",
+            DefaultButton = ContentDialogButton.Close
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private sealed record SubscriptionSwitchRequest(
+        bool UseEsim,
+        string TargetIccId,
+        string Label);
 
     private void UpdatePhoneProfile()
     {
