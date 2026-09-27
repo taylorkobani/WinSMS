@@ -58,6 +58,18 @@
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem Content="Exit"
+                                    Tag="Exit"
+                                    Foreground="Red"
+                                    SelectsOnInvoked="False"
+                                    Tapped="ExitNavigationItem_Tapped">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7E8;" Foreground="Red"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
             <NavigationView.Content>
                 <Frame x:Name="ContentFrame"/>
             </NavigationView.Content>
