@@ -77,7 +77,7 @@ public sealed partial class MainWindow : Window
         smsService.CurrentSubscriptionChanged += OnCurrentSubscriptionChanged;
 
         var phoneProfiles = App.Services.GetRequiredService<PhoneProfileService>();
-        phoneProfiles.ProfilesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdatePhoneProfile);
+        phoneProfiles.ProfilesChanged += OnPhoneProfilesChanged;
 
         // Do not paint the previously cached profile before Windows has had a
         // chance to refresh the current SMS identity for this process.
@@ -193,6 +193,18 @@ public sealed partial class MainWindow : Window
 
         SetForegroundWindow(_hwnd);
         RemoveTrayIcon();
+    }
+
+    private void OnPhoneProfilesChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // Profile synchronization fires while Windows is remapping the
+            // modem. Preserve the explicit title-bar switching status until
+            // the user-initiated operation has completed.
+            if (!_subscriptionSwitchInProgress)
+                UpdatePhoneProfile();
+        });
     }
 
     private void OnCurrentSubscriptionChanged(
@@ -397,6 +409,11 @@ public sealed partial class MainWindow : Window
         var smsService = App.Services.GetRequiredService<ISmsService>();
         smsService.MessageReceived -= OnSmsMessageReceived;
         smsService.CurrentSubscriptionChanged -= OnCurrentSubscriptionChanged;
+
+        App.Services
+            .GetRequiredService<PhoneProfileService>()
+            .ProfilesChanged -= OnPhoneProfilesChanged;
+
         RemoveTrayIcon();
 
         // The SMS popup is a second top-level WinUI Window. Hiding it is not
@@ -557,8 +574,9 @@ public sealed partial class MainWindow : Window
         }
 
         _subscriptionSwitchInProgress = true;
-        PhoneProfilePill.IsEnabled = false;
-        PhoneProfileName.Text = "Switching…";
+        PhoneProfilePill.Visibility = Visibility.Visible;
+        PhoneProfilePill.IsHitTestVisible = false;
+        PhoneProfileName.Text = $"Switching to {(request.UseEsim ? "eSIM" : "SIM")}…";
 
         try
         {
@@ -585,7 +603,8 @@ public sealed partial class MainWindow : Window
         finally
         {
             _subscriptionSwitchInProgress = false;
-            PhoneProfilePill.IsEnabled = true;
+            PhoneProfilePill.IsHitTestVisible = true;
+            UpdatePhoneProfile();
         }
     }
 
