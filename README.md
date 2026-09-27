@@ -21,7 +21,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
 - **Exit confirmation** prevents accidental application shutdown.
 - **Run at Windows sign-in** can be enabled or disabled from Settings.
-- **SMS diagnostics** inspect Windows SMS devices, modem state, cellular class, account number, SMSC information, and related mobile-broadband information.
+- **SMS diagnostics** inspect Windows SMS devices, readiness, cellular class, account number, parent device ID, and SMSC information using the Windows SMS API.
 - **Open Data Folder** provides direct access to WinSMS local application data.
 
 ## Requirements
@@ -112,7 +112,7 @@ Settings currently provides:
 - **Run WinSMS when I sign in to Windows** — manages the current user's Windows startup entry.
 - **Open Data Folder** — opens the WinSMS application-data directory in File Explorer.
 - **Detect Windows SMS Device** — enumerates available Windows SMS devices.
-- **Run Diagnostics** — reports detailed Windows SMS/mobile-broadband information useful for troubleshooting.
+- **Run Diagnostics** — reports detailed Windows SMS information useful for troubleshooting.
 
 ## Data storage
 
@@ -185,7 +185,6 @@ For a more detailed technical overview, see [Architecture](docs/ARCHITECTURE.md)
 | Dependency injection | Microsoft.Extensions.DependencyInjection |
 | Logging | Microsoft.Extensions.Logging |
 | SMS API | `Windows.Devices.Sms` |
-| Mobile broadband diagnostics | `Windows.Networking.NetworkOperators` |
 | Message persistence | XML / LINQ to XML |
 | Profile/block persistence | JSON |
 | Tests | xUnit |
@@ -214,7 +213,7 @@ Phone-number normalization currently strips non-digits, converts a leading `00` 
 
 ## Diagnostics and privacy
 
-The diagnostics screen can expose device and telecommunications identifiers such as device IDs, account phone numbers, SMSC addresses, and SIM ICCIDs.
+The diagnostics screen can expose device and telecommunications identifiers such as device IDs, parent device IDs, account phone numbers, and SMSC addresses.
 
 Do not post diagnostic output publicly without reviewing and redacting sensitive identifiers first.
 
