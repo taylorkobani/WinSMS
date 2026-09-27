@@ -9,6 +9,7 @@ public interface ISmsService
     Task<SmsMessage> SendMessageAsync(string phoneNumber, string body, CancellationToken cancellationToken = default);
     Task MarkAsReadAsync(SmsMessage message);
     string GetCurrentPhoneNumber();
+    Task<string> SynchronizeCurrentPhoneNumberAsync(CancellationToken cancellationToken = default);
 
     event EventHandler<SmsMessage>? MessageReceived;
     event EventHandler<string>? CurrentPhoneNumberChanged;
