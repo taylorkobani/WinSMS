@@ -91,5 +91,39 @@
                 <Frame x:Name="ContentFrame"/>
             </NavigationView.Content>
         </NavigationView>
+
+        <Grid x:Name="SubscriptionSwitchOverlay"
+              Grid.RowSpan="2"
+              Canvas.ZIndex="1000"
+              Background="#99000000"
+              Visibility="Collapsed"
+              IsHitTestVisible="True"
+              AutomationProperties.Name="Switching cellular subscription">
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Padding="28,22"
+                    MinWidth="240"
+                    CornerRadius="12"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="12"
+                            HorizontalAlignment="Center">
+                    <ProgressRing IsActive="True"
+                                  Width="36"
+                                  Height="36"
+                                  HorizontalAlignment="Center"/>
+                    <TextBlock Text="Switching..."
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Please wait while Windows changes the active SIM."
+                               Opacity="0.7"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               MaxWidth="320"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
