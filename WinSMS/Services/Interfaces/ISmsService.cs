@@ -11,4 +11,5 @@ public interface ISmsService
     string GetCurrentPhoneNumber();
 
     event EventHandler<SmsMessage>? MessageReceived;
+    event EventHandler<string>? CurrentPhoneNumberChanged;
 }
