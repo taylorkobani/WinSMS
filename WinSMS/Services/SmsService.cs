@@ -265,14 +265,19 @@ public class SmsService : ISmsService
             useEsim,
             cancellationToken);
 
-        if (!switchResult.Success)
+        // netsh can return a non-zero exit code even after Windows has
+        // actually remapped the modem. If a concrete interface/slot was
+        // targeted, continue and verify the switch from fresh subscriber ICCID
+        // data instead of immediately showing a false failure.
+        if (!switchResult.Success &&
+            (string.IsNullOrWhiteSpace(switchResult.InterfaceName) ||
+             switchResult.SlotIndex < 0))
         {
             throw new InvalidOperationException(
-                switchResult.Error ?? "Windows rejected the SIM/eSIM switch.");
+                switchResult.Error ?? "Windows did not expose a switchable SIM/eSIM slot.");
         }
 
-        // The slot mapping itself has already been accepted/verified by
-        // MobileBroadbandIdentityService. Windows can take a little longer to
+        // The slot mapping command has been attempted. Windows can take a little longer to
         // refresh subscriber metadata (especially ICCID) after the mapping
         // changes, so wait for fresh identity data but do not turn a successful
         // Windows slot change into a false UI error if metadata lags behind.
@@ -329,6 +334,16 @@ public class SmsService : ISmsService
         // drivers keep returning stale subscriber metadata for a while. Return
         // the latest known subscription and let the normal background
         // synchronization refresh ICCID/profile metadata when Windows catches up.
+        if (!switchResult.Success)
+        {
+            // The command reported failure and Windows never exposed a changed
+            // ICCID during the verification window, so only now surface the
+            // original switch error.
+            throw new InvalidOperationException(
+                switchResult.Error ??
+                "Windows did not confirm the requested SIM/eSIM switch.");
+        }
+
         _logger.LogWarning(
             "Cellular slot mapping succeeded, but subscriber metadata did not refresh within 20 seconds.");
 
