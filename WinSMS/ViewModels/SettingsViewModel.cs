@@ -3,20 +3,28 @@ using CommunityToolkit.Mvvm.Input;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sms;
 using WinSMS.Services;
+using WinSMS.Services.Interfaces;
 
 namespace WinSMS.ViewModels;
 
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly StartupService _startupService;
+    private readonly MobileBroadbandIdentityService _mobileBroadbandIdentity;
+    private readonly ISmsService _smsService;
     private bool _updatingStartup;
 
     [ObservableProperty]
     private bool _runAtWindowsStartup;
 
-    public SettingsViewModel(StartupService startupService)
+    public SettingsViewModel(
+        StartupService startupService,
+        MobileBroadbandIdentityService mobileBroadbandIdentity,
+        ISmsService smsService)
     {
         _startupService = startupService;
+        _mobileBroadbandIdentity = mobileBroadbandIdentity;
+        _smsService = smsService;
         _runAtWindowsStartup = _startupService.IsEnabled();
     }
 
@@ -70,8 +78,16 @@ public partial class SettingsViewModel : ObservableObject
                 lines.Add($"Parent device ID: {defaultDevice.ParentDeviceId}");
                 lines.Add($"Status: {defaultDevice.DeviceStatus}");
                 lines.Add($"Cellular class: {defaultDevice.CellularClass}");
-                lines.Add($"Account number: {defaultDevice.AccountPhoneNumber ?? "(not reported)"}");
+                lines.Add($"SmsDevice2 account number: {defaultDevice.AccountPhoneNumber ?? "(not reported)"}");
             }
+
+            var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync();
+            lines.Add($"Mobile broadband telephone number(s): {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
+            if (!string.IsNullOrWhiteSpace(readyInfo.Error))
+                lines.Add($"Mobile broadband ready-info: {readyInfo.Error}");
+
+            var effectiveNumber = await _smsService.SynchronizeCurrentPhoneNumberAsync();
+            lines.Add($"WinSMS effective current number: {(string.IsNullOrWhiteSpace(effectiveNumber) ? "(not reported)" : effectiveNumber)}");
 
             WindowsSmsDiagnostics = string.Join(Environment.NewLine, lines);
             StatusMessage = devices.Count > 0
@@ -130,6 +146,16 @@ public partial class SettingsViewModel : ObservableObject
                     lines.Add($"SmsDevice2.FromId failed: {FormatException(ex)}");
                 }
             }
+
+            var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync();
+            lines.Add("");
+            lines.Add("Mobile broadband ready-info:");
+            lines.Add($"Telephone number(s): {(readyInfo.TelephoneNumbers.Count == 0 ? "(not reported)" : string.Join(", ", readyInfo.TelephoneNumbers))}");
+            if (!string.IsNullOrWhiteSpace(readyInfo.Error))
+                lines.Add($"Query status: {readyInfo.Error}");
+
+            var effectiveNumber = await _smsService.SynchronizeCurrentPhoneNumberAsync();
+            lines.Add($"WinSMS effective current number: {(string.IsNullOrWhiteSpace(effectiveNumber) ? "(not reported)" : effectiveNumber)}");
 
             StatusMessage = devices.Count > 0
                 ? "Windows SMS diagnostics completed."
