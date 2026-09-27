@@ -11,105 +11,248 @@ public class SmsService : ISmsService
     private readonly ILogger<SmsService> _logger;
     private readonly BlockedNumberService _blockedNumbers;
     private readonly MobileBroadbandIdentityService _mobileBroadbandIdentity;
+    private readonly LegacyMbnSubscriberService _legacyMbn;
+    private readonly PhoneProfileService _phoneProfiles;
+
     private SmsMessageRegistration? _messageRegistration;
-    private readonly object _phoneNumberSync = new();
-    private string _currentPhoneNumber = string.Empty;
+    private readonly object _subscriptionSync = new();
+    private CellularSubscription? _currentSubscription;
+    private string _metadataIccId = string.Empty;
 
     public event EventHandler<SmsMessage>? MessageReceived;
-    public event EventHandler<string>? CurrentPhoneNumberChanged;
-
-    public string GetCurrentPhoneNumber()
-    {
-        lock (_phoneNumberSync)
-        {
-            if (!string.IsNullOrWhiteSpace(_currentPhoneNumber))
-                return _currentPhoneNumber;
-        }
-
-        var number = SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
-        UpdateCurrentPhoneNumber(number);
-        return number;
-    }
-
-    public async Task<string> SynchronizeCurrentPhoneNumberAsync(
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // SmsDevice2 can continue reporting the previous physical-SIM number
-        // after Windows switches the active subscription to an eSIM. Read the
-        // non-mutating mobile-broadband ready-info as a second source and prefer
-        // its active telephone number when available.
-        var smsApiNumber = SmsDevice2.GetDefault()?.AccountPhoneNumber?.Trim() ?? string.Empty;
-        var readyInfo = await _mobileBroadbandIdentity.GetReadyInfoAsync(cancellationToken);
-        var broadbandNumber = readyInfo.TelephoneNumbers.FirstOrDefault();
-
-        var effectiveNumber = !string.IsNullOrWhiteSpace(broadbandNumber)
-            ? broadbandNumber
-            : smsApiNumber;
-
-        UpdateCurrentPhoneNumber(effectiveNumber);
-        return effectiveNumber;
-    }
+    public event EventHandler<CellularSubscription>? CurrentSubscriptionChanged;
 
     public SmsService(
         IMessageArchiveService archive,
         ILogger<SmsService> logger,
         BlockedNumberService blockedNumbers,
-        MobileBroadbandIdentityService mobileBroadbandIdentity)
+        MobileBroadbandIdentityService mobileBroadbandIdentity,
+        LegacyMbnSubscriberService legacyMbn,
+        PhoneProfileService phoneProfiles)
     {
         _archive = archive;
         _logger = logger;
         _blockedNumbers = blockedNumbers;
         _mobileBroadbandIdentity = mobileBroadbandIdentity;
+        _legacyMbn = legacyMbn;
+        _phoneProfiles = phoneProfiles;
+
         InitializeWindowsSmsReceiving();
     }
 
-    public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(CancellationToken cancellationToken = default)
+    public CellularSubscription? GetCurrentSubscription()
+    {
+        lock (_subscriptionSync)
+            return _currentSubscription;
+    }
+
+    public async Task<CellularSubscription?> SynchronizeCurrentSubscriptionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        IReadOnlyList<LegacyMbnSubscriberInfo> subscribers;
+        try
+        {
+            subscribers = await Task.Run(
+                () => _legacyMbn.GetSubscribers(),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not enumerate current MBN subscriber information.");
+            subscribers = Array.Empty<LegacyMbnSubscriberInfo>();
+        }
+
+        var subscriber = subscribers.FirstOrDefault(item =>
+            !string.IsNullOrWhiteSpace(item.SimIccId));
+
+        if (subscriber == null)
+        {
+            // Keep SMS transport functional even on hardware where Windows
+            // declines to expose subscriber identity. Without an ICCID we do
+            // not create or select a WinSMS profile.
+            return GetCurrentSubscription();
+        }
+
+        var iccId = NormalizeIccId(subscriber.SimIccId);
+        var previous = GetCurrentSubscription();
+
+        var windowsProfileName =
+            string.Equals(
+                NormalizeIccId(previous?.IccId ?? string.Empty),
+                iccId,
+                StringComparison.OrdinalIgnoreCase)
+                ? previous?.WindowsProfileName ?? string.Empty
+                : string.Empty;
+
+        bool? isEsim =
+            string.Equals(
+                NormalizeIccId(previous?.IccId ?? string.Empty),
+                iccId,
+                StringComparison.OrdinalIgnoreCase)
+                ? previous?.IsEsim
+                : null;
+
+        var needMetadata =
+            !string.Equals(
+                NormalizeIccId(_metadataIccId),
+                iccId,
+                StringComparison.OrdinalIgnoreCase);
+
+        if (needMetadata)
+        {
+            try
+            {
+                var readyInfo =
+                    await _mobileBroadbandIdentity.GetReadyInfoAsync(cancellationToken);
+
+                windowsProfileName = readyInfo.WindowsProfileName;
+
+                var matchedSlot = readyInfo.Slots.FirstOrDefault(slot =>
+                    !string.IsNullOrWhiteSpace(slot.IccId) &&
+                    NormalizeIccId(slot.IccId) == iccId);
+
+                if (matchedSlot != null)
+                {
+                    isEsim = matchedSlot.IsEsim;
+                }
+                else if (readyInfo.SelectedSlot != null &&
+                         !string.IsNullOrWhiteSpace(readyInfo.SelectedSlot.IccId) &&
+                         NormalizeIccId(readyInfo.SelectedSlot.IccId) == iccId)
+                {
+                    isEsim = readyInfo.SelectedSlot.IsEsim;
+                }
+                else
+                {
+                    // Best-effort fallback for drivers that expose the eSIM slot
+                    // type but omit per-slot ICCID from readyinfo.
+                    var eSimSlots = readyInfo.Slots
+                        .Where(slot => slot.IsEsim)
+                        .ToList();
+
+                    var physicalSlots = readyInfo.Slots
+                        .Where(slot => !slot.IsEsim)
+                        .ToList();
+
+                    if (eSimSlots.Count == 1 &&
+                        physicalSlots.Any() &&
+                        !string.IsNullOrWhiteSpace(previous?.IccId) &&
+                        NormalizeIccId(previous.IccId) != iccId &&
+                        previous.IsEsim == false)
+                    {
+                        isEsim = true;
+                    }
+                }
+
+                _metadataIccId = iccId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not read SIM/eSIM metadata for ICCID {IccId}.", iccId);
+            }
+        }
+
+        var subscription = new CellularSubscription
+        {
+            IccId = iccId,
+            SubscriberId = subscriber.SubscriberId?.Trim() ?? string.Empty,
+            // The telephone number must come from the same subscriber record
+            // as this ICCID. SmsDevice2.AccountPhoneNumber can be stale after
+            // Windows switches from a physical SIM to an eSIM.
+            WindowsPhoneNumber = subscriber.TelephoneNumbers
+                .FirstOrDefault(number => !string.IsNullOrWhiteSpace(number))?
+                .Trim() ?? string.Empty,
+            WindowsProfileName = windowsProfileName,
+            InterfaceId = subscriber.InterfaceId?.Trim() ?? string.Empty,
+            IsEsim = isEsim
+        };
+
+        UpdateCurrentSubscription(subscription);
+        await _phoneProfiles.SynchronizeProfileAsync(subscription);
+
+        return subscription;
+    }
+
+    public async Task<IReadOnlyList<SmsMessage>> GetAllMessagesAsync(
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var archived = await _archive.LoadAllMessagesAsync();
-        return archived.Where(m => m.Direction == SmsDirection.Incoming)
-                       .OrderBy(m => m.Timestamp)
-                       .ToList();
+
+        return archived
+            .Where(message => message.Direction == SmsDirection.Incoming)
+            .OrderBy(message => message.Timestamp)
+            .ToList();
     }
 
-    public async Task<IReadOnlyList<SmsMessage>> GetUnreadMessagesAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<SmsMessage>> GetUnreadMessagesAsync(
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var archived = await _archive.LoadAllMessagesAsync();
-        return archived.Where(m => m.Direction == SmsDirection.Incoming && !m.IsRead)
-                       .OrderBy(m => m.Timestamp)
-                       .ToList();
+
+        return archived
+            .Where(message =>
+                message.Direction == SmsDirection.Incoming &&
+                !message.IsRead)
+            .OrderBy(message => message.Timestamp)
+            .ToList();
     }
 
-    public async Task<SmsMessage> SendMessageAsync(string phoneNumber, string body, CancellationToken cancellationToken = default)
+    public async Task<SmsMessage> SendMessageAsync(
+        string phoneNumber,
+        string body,
+        CancellationToken cancellationToken = default)
     {
+        // Keep the proven SMS transport path unchanged: Windows decides which
+        // currently selected SIM/eSIM actually sends the message.
         var device = SmsDevice2.GetDefault()
-            ?? throw new InvalidOperationException("Windows did not provide a default SMS device.");
+            ?? throw new InvalidOperationException(
+                "Windows did not provide a default SMS device.");
 
-        var localPhoneNumber = await SynchronizeCurrentPhoneNumberAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(localPhoneNumber))
+        var subscription =
+            await SynchronizeCurrentSubscriptionAsync(cancellationToken);
+
+        var localSubscriptionId = subscription?.IccId ?? string.Empty;
+        var localPhoneNumber = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(localSubscriptionId))
+        {
+            var profile = _phoneProfiles.GetProfile(localSubscriptionId);
+            localPhoneNumber = profile.PhoneNumber?.Trim() ?? string.Empty;
+        }
+        else
+        {
+            // Compatibility fallback only when Windows did not expose an ICCID.
             localPhoneNumber = device.AccountPhoneNumber?.Trim() ?? string.Empty;
+        }
 
         var message = new SmsMessage
         {
             PhoneNumber = phoneNumber,
+            LocalSubscriptionId = localSubscriptionId,
             LocalPhoneNumber = localPhoneNumber,
             Body = body,
             Direction = SmsDirection.Outgoing,
             Status = SmsStatus.Pending,
             Timestamp = DateTimeOffset.Now
         };
+
         await _archive.SaveMessageAsync(message);
+
         try
         {
             message.Status = SmsStatus.Sending;
             await _archive.UpdateMessageAsync(message);
+
             cancellationToken.ThrowIfCancellationRequested();
 
             if (device.DeviceStatus != SmsDeviceStatus.Ready)
-                throw new InvalidOperationException($"Windows SMS device is not ready. Status: {device.DeviceStatus}.");
+            {
+                throw new InvalidOperationException(
+                    $"Windows SMS device is not ready. Status: {device.DeviceStatus}.");
+            }
 
             var sms = new SmsTextMessage2
             {
@@ -117,20 +260,30 @@ public class SmsService : ISmsService
                 Body = body
             };
 
-            var result = await device.SendMessageAndGetResultAsync(sms).AsTask(cancellationToken);
+            var result =
+                await device.SendMessageAndGetResultAsync(sms)
+                    .AsTask(cancellationToken);
+
             if (result.IsSuccessful)
             {
                 message.Status = SmsStatus.Sent;
-                message.ModemReference = result.MessageReferenceNumbers.Count > 0
-                    ? string.Join(",", result.MessageReferenceNumbers)
-                    : null;
-                _logger.LogInformation("SMS sent successfully through Windows SMS API to {PhoneNumber}", phoneNumber);
+                message.ModemReference =
+                    result.MessageReferenceNumbers.Count > 0
+                        ? string.Join(",", result.MessageReferenceNumbers)
+                        : null;
+
+                _logger.LogInformation(
+                    "SMS sent successfully through Windows SMS API to {PhoneNumber}",
+                    phoneNumber);
             }
             else
             {
                 message.Status = SmsStatus.Failed;
-                message.Error = $"Windows SMS send failed. CellularClass={result.CellularClass}; " +
-                                $"ModemError={result.ModemErrorCode}; TransportFailure={result.TransportFailureCause}.";
+                message.Error =
+                    $"Windows SMS send failed. CellularClass={result.CellularClass}; " +
+                    $"ModemError={result.ModemErrorCode}; " +
+                    $"TransportFailure={result.TransportFailureCause}.";
+
                 _logger.LogError("SMS send failed: {Error}", message.Error);
             }
         }
@@ -138,53 +291,64 @@ public class SmsService : ISmsService
         {
             message.Status = SmsStatus.Failed;
             message.Error = ex.Message;
-            _logger.LogError(ex, "Failed to send SMS to {PhoneNumber}", phoneNumber);
+
+            _logger.LogError(
+                ex,
+                "Failed to send SMS to {PhoneNumber}",
+                phoneNumber);
         }
-        finally { await _archive.UpdateMessageAsync(message); }
+        finally
+        {
+            await _archive.UpdateMessageAsync(message);
+        }
+
         return message;
     }
 
-    public Task MarkAsReadAsync(SmsMessage message) { message.IsRead = true; return _archive.UpdateMessageAsync(message); }
-
-    private void UpdateCurrentPhoneNumber(string? phoneNumber)
+    public Task MarkAsReadAsync(SmsMessage message)
     {
-        var value = phoneNumber?.Trim() ?? string.Empty;
-        var changed = false;
-
-        lock (_phoneNumberSync)
-        {
-            if (!PhoneNumbersEquivalent(_currentPhoneNumber, value))
-            {
-                _currentPhoneNumber = value;
-                changed = true;
-            }
-            else if (!string.Equals(_currentPhoneNumber, value, StringComparison.Ordinal))
-            {
-                _currentPhoneNumber = value;
-            }
-        }
-
-        if (changed)
-        {
-            _logger.LogInformation(
-                "Current Windows SMS phone number changed to {PhoneNumber}",
-                value);
-            CurrentPhoneNumberChanged?.Invoke(this, value);
-        }
+        message.IsRead = true;
+        return _archive.UpdateMessageAsync(message);
     }
 
-    private static bool PhoneNumbersEquivalent(string left, string right)
-        => string.Equals(
-            NormalizePhoneNumber(left),
-            NormalizePhoneNumber(right),
-            StringComparison.OrdinalIgnoreCase);
-
-    private static string NormalizePhoneNumber(string phoneNumber)
+    private void UpdateCurrentSubscription(CellularSubscription subscription)
     {
-        var digits = new string((phoneNumber ?? string.Empty).Where(char.IsDigit).ToArray());
-        if (digits.StartsWith("00")) digits = digits[2..];
-        if (digits.StartsWith("0") && digits.Length >= 10) digits = "44" + digits[1..];
-        return digits;
+        CellularSubscription? previous;
+        var changed = false;
+
+        lock (_subscriptionSync)
+        {
+            previous = _currentSubscription;
+
+            changed =
+                previous == null ||
+                !string.Equals(
+                    NormalizeIccId(previous.IccId),
+                    NormalizeIccId(subscription.IccId),
+                    StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(
+                    previous.WindowsPhoneNumber,
+                    subscription.WindowsPhoneNumber,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    previous.WindowsProfileName,
+                    subscription.WindowsProfileName,
+                    StringComparison.Ordinal) ||
+                previous.IsEsim != subscription.IsEsim;
+
+            _currentSubscription = subscription;
+        }
+
+        if (!changed)
+            return;
+
+        _logger.LogInformation(
+            "Current cellular subscription changed. ICCID={IccId}; Type={Type}; WindowsPhoneNumber={PhoneNumber}",
+            subscription.IccId,
+            subscription.SimTypeLabel,
+            subscription.WindowsPhoneNumber);
+
+        CurrentSubscriptionChanged?.Invoke(this, subscription);
     }
 
     private void InitializeWindowsSmsReceiving()
@@ -193,25 +357,24 @@ public class SmsService : ISmsService
 
         try
         {
-            // Do not reuse a registration left behind by a previous WinSMS process.
-            // Windows can enumerate that registration, but subscribing to its
-            // MessageReceived event can fail with 0xD000000D. Recreate it so the
-            // event source belongs to this process.
             var existing = SmsMessageRegistration.AllRegistrations
-                .FirstOrDefault(r => r.Id == registrationId);
+                .FirstOrDefault(registration => registration.Id == registrationId);
 
             if (existing != null)
             {
                 _logger.LogInformation(
                     "Removing stale SMS registration {RegistrationId} before re-registering.",
                     registrationId);
+
                 existing.Unregister();
             }
 
             var rules = new SmsFilterRules(SmsFilterActionType.Accept);
             rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
 
-            _messageRegistration = SmsMessageRegistration.Register(registrationId, rules);
+            _messageRegistration =
+                SmsMessageRegistration.Register(registrationId, rules);
+
             _messageRegistration.MessageReceived += OnWindowsSmsMessageReceived;
 
             _logger.LogInformation(
@@ -247,16 +410,47 @@ public class SmsService : ISmsService
             }
 
             var text = details.TextMessage;
-            var localPhoneNumber = text.To?.Trim();
-            if (string.IsNullOrWhiteSpace(localPhoneNumber))
-                localPhoneNumber = GetCurrentPhoneNumber();
 
-            UpdateCurrentPhoneNumber(localPhoneNumber);
+            var subscription =
+                await SynchronizeCurrentSubscriptionAsync();
+
+            var localPhoneNumber = text.To?.Trim() ?? string.Empty;
+
+            // If an incoming SMS gives Windows a concrete local destination
+            // number for an ICCID that previously had none, treat that as
+            // authoritative Windows metadata and lock the profile number.
+            if (subscription != null &&
+                !string.IsNullOrWhiteSpace(localPhoneNumber) &&
+                !PhoneNumbersEquivalent(
+                    subscription.WindowsPhoneNumber,
+                    localPhoneNumber))
+            {
+                subscription = new CellularSubscription
+                {
+                    IccId = subscription.IccId,
+                    SubscriberId = subscription.SubscriberId,
+                    WindowsPhoneNumber = localPhoneNumber,
+                    WindowsProfileName = subscription.WindowsProfileName,
+                    InterfaceId = subscription.InterfaceId,
+                    IsEsim = subscription.IsEsim
+                };
+
+                UpdateCurrentSubscription(subscription);
+                await _phoneProfiles.SynchronizeProfileAsync(subscription);
+            }
+
+            if (string.IsNullOrWhiteSpace(localPhoneNumber) &&
+                subscription != null)
+            {
+                localPhoneNumber =
+                    _phoneProfiles.GetEffectivePhoneNumber(subscription.IccId);
+            }
 
             var message = new SmsMessage
             {
                 PhoneNumber = text.From ?? string.Empty,
-                LocalPhoneNumber = localPhoneNumber ?? string.Empty,
+                LocalSubscriptionId = subscription?.IccId ?? string.Empty,
+                LocalPhoneNumber = localPhoneNumber,
                 Body = text.Body ?? string.Empty,
                 Timestamp = text.Timestamp,
                 Direction = SmsDirection.Incoming,
@@ -267,24 +461,58 @@ public class SmsService : ISmsService
             // Acknowledge promptly so Windows can continue normal delivery.
             details.Accept();
 
-            // Blocked senders are discarded before archive storage and before
-            // MessageReceived is raised, so they never reach conversations or notifications.
             if (_blockedNumbers.IsBlocked(message.PhoneNumber))
             {
-                _logger.LogInformation("Discarded incoming SMS from blocked number {PhoneNumber}", message.PhoneNumber);
+                _logger.LogInformation(
+                    "Discarded incoming SMS from blocked number {PhoneNumber}",
+                    message.PhoneNumber);
+
                 return;
             }
 
             await _archive.SaveMessageAsync(message);
-            _logger.LogInformation("Incoming SMS received from {PhoneNumber}", message.PhoneNumber);
+
+            _logger.LogInformation(
+                "Incoming SMS received from {PhoneNumber}",
+                message.PhoneNumber);
+
             MessageReceived?.Invoke(this, message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process an incoming Windows SMS message.");
-            try { details.Accept(); } catch { }
+            _logger.LogError(
+                ex,
+                "Failed to process an incoming Windows SMS message.");
+
+            try { details.Accept(); }
+            catch { }
         }
     }
 
+    private static bool PhoneNumbersEquivalent(string left, string right)
+        => string.Equals(
+            NormalizePhoneNumber(left),
+            NormalizePhoneNumber(right),
+            StringComparison.OrdinalIgnoreCase);
 
+    private static string NormalizePhoneNumber(string value)
+    {
+        var digits = new string((value ?? string.Empty)
+            .Where(char.IsDigit)
+            .ToArray());
+
+        if (digits.StartsWith("00"))
+            digits = digits[2..];
+
+        if (digits.StartsWith("0") && digits.Length >= 10)
+            digits = "44" + digits[1..];
+
+        return digits;
+    }
+
+    private static string NormalizeIccId(string value)
+        => new string((value ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
 }
