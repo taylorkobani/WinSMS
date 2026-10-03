@@ -18,7 +18,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 - **Number blocking** discards future incoming messages from blocked numbers before WinSMS archives or displays them.
 - **SIM/eSIM profiles** are keyed by ICCID and can store a WinSMS name, colour, Windows connection-profile name, SIM type, and optional phone number.
 - **ICCID-based SIM/eSIM detection** reads fresh Windows Mobile Broadband subscriber identity and treats phone number as optional metadata, avoiding stale `SmsDevice2.AccountPhoneNumber` values after a SIM/eSIM switch.
-- **Title-bar SIM/eSIM switcher** opens Windows Cellular settings from the current-profile pill and watches the active ICCID until Windows completes the requested subscription change. The active item is checked in WinSMS.
+- **Title-bar SIM/eSIM switcher** lets supported dual-SIM single-active Windows devices remap the active modem slot directly from the current-profile pill. The active item is checked, and WinSMS verifies the resulting ICCID before changing profile context.
 - **Protected switching workflow** shows a full-window `Switching...` overlay while Windows changes the active SIM/eSIM, preventing navigation, sending, profile editing, or other interaction until the operation completes.
 - **System tray support** keeps WinSMS running when the main window is minimized **or closed with the title-bar X button**.
 - **Incoming-message popup** is shown while WinSMS is running in the notification area.
@@ -39,7 +39,7 @@ Built with **WinUI 3**, **.NET 8**, and an MVVM-oriented architecture, WinSMS ke
 | Mobile service | Active SIM/eSIM and carrier service capable of SMS |
 | Architectures | x86, x64, ARM64 |
 
-The application runs with the current user's privileges. WinSMS no longer writes Mobile Broadband slot mappings directly; Windows Cellular settings performs SIM/eSIM activation and switching.
+The application normally runs with the current user's privileges. On systems where Windows rejects a SIM/eSIM slot-mapping change at normal privilege, WinSMS may request UAC elevation for that one Windows `netsh mbn set slotmapping` operation; the application itself remains unelevated.
 
 ## Getting started
 
@@ -106,16 +106,17 @@ When Windows reports the phone number for the current ICCID, WinSMS overwrites t
 
 The current profile is reflected in the application title area. ICCID remains the identity key regardless of whether a phone number is available.
 
-Click the current-profile pill to open the SIM/eSIM selector. The active subscription is checked and disabled. Selecting the other type opens **Windows Settings > Network & internet > Cellular** so Windows can perform the subscription/profile change safely.
+Click the current-profile pill to open the SIM/eSIM selector. The active subscription is checked and disabled. Selecting the other type asks Windows Mobile Broadband to change the modem slot mapping.
 
 During the switch, WinSMS:
-1. shows a full-window **Switching...** overlay;
-2. blocks interaction with the rest of WinSMS;
-3. opens Windows Cellular settings;
-4. watches fresh Mobile Broadband subscriber information for the requested ICCID/SIM type; and
-5. updates the current profile, title pill, and conversation scope only after Windows exposes the new active subscription.
+1. closes the selector and shows a full-window **Switching...** overlay;
+2. blocks interaction with the rest of the application;
+3. asks Windows to remap the modem to the requested SIM/eSIM slot;
+4. treats the observed slot mapping and fresh subscriber ICCID as the source of truth rather than trusting the `netsh` process exit code alone;
+5. waits for Windows Mobile Broadband subscriber information to reflect the new subscription; and
+6. only then updates the current profile, title pill, and conversation scope.
 
-WinSMS intentionally does **not** call `netsh mbn set slotmapping` to switch subscriptions. On some eSIM/DSSA hardware, raw executor-to-slot mapping is not equivalent to enabling the eSIM profile selected by Windows Settings and can leave the modem mapped to an eUICC with no active profile.
+Some WWAN drivers return a non-zero `netsh` exit code even after successfully applying the slot change. WinSMS therefore verifies the actual mapping/ICCID before reporting a failure. Windows may request administrator approval for the slot-mapping command.
 
 ### Notification area
 
@@ -207,7 +208,7 @@ For a more detailed technical overview, see [Architecture](docs/ARCHITECTURE.md)
 | SMS API | `Windows.Devices.Sms` |
 | Subscriber identity | Win32 Mobile Broadband (MBN) subscriber API |
 | SIM/eSIM slot inspection | Windows `netsh mbn show slotstatus` / `slotmapping` |
-| SIM/eSIM switching | Windows Cellular settings (`ms-settings:network-cellular`) with ICCID verification |
+| SIM/eSIM switching | Windows `netsh mbn set slotmapping` with ICCID verification |
 | Mobile-broadband diagnostics fallback | Windows `netsh mbn show readyinfo` |
 | Message persistence | XML / LINQ to XML |
 | Profile/block persistence | JSON |
@@ -242,11 +243,13 @@ Existing phone-number-keyed profiles are migrated when the corresponding SIM is 
 
 ### SIM/eSIM switching
 
-WinSMS uses ICCID to detect which cellular subscription Windows has actually activated. Selecting another SIM/eSIM from the title pill opens the Windows **Cellular** settings page and waits for Windows to expose the requested subscription through fresh Mobile Broadband subscriber information.
+On supported dual-SIM single-active (DSSA) Windows hardware, WinSMS can request the same underlying slot-mapping change represented by Windows' **Use this SIM for mobile data** selector.
 
-This design is deliberate. Windows exposes low-level DSSA slot mapping through `netsh mbn set slotmapping`, but slot mapping only binds an executor to a UICC/eUICC slot. It does not safely replace the Windows eSIM-profile activation workflow on every modem. WinSMS therefore leaves activation/profile coordination to Windows Settings and observes the resulting ICCID.
+The implementation intentionally separates **command result** from **observed state**. A `netsh` command can return a non-zero process exit code even when the modem has already changed slots, so WinSMS checks the actual mapped slot and then confirms the active subscriber through a fresh ICCID read before updating application state.
 
-While the change is in progress, a blocking overlay prevents the user from sending messages or changing WinSMS state against a subscription that Windows is still changing. Incoming-SMS registration is recreated when the active ICCID changes.
+While this operation is in progress, a blocking overlay prevents the user from sending messages or changing application state against a subscription that is still being remapped.
+
+This feature depends on Windows and the modem/WWAN driver exposing usable slot-status and slot-mapping information. It is not available on every cellular modem.
 
 ## Message archive
 
@@ -287,7 +290,7 @@ Hardware-dependent Windows SMS behavior cannot be fully validated by ordinary un
 - Blocking is application-level, not network-level.
 - Local archives are not encrypted by WinSMS.
 - SMS diagnostics may contain sensitive identifiers.
-- SIM/eSIM switching depends on Windows Cellular settings and the modem/WWAN stack successfully activating the requested subscription; WinSMS observes the result by ICCID rather than forcing raw slot mapping.
+- SIM/eSIM switching depends on Windows Mobile Broadband slot-mapping support and the modem/WWAN driver exposing usable slot information.
 - Some carriers/eSIMs do not expose an MSISDN/telephone number to Windows; WinSMS therefore treats the number as optional profile metadata.
 - Incoming-message notifications are part of the running WinSMS process; WinSMS is not a background Windows service.
 - A compatible physical modem/SIM environment is required to validate end-to-end sending, receiving, and SIM/eSIM switching.
