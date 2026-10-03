@@ -583,60 +583,15 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var launched = await Windows.System.Launcher.LaunchUriAsync(
-                new Uri("ms-settings:network-cellular"));
-
-            if (!launched)
-            {
-                throw new InvalidOperationException(
-                    "Windows Cellular settings could not be opened.");
-            }
-
             var smsService = App.Services.GetRequiredService<ISmsService>();
-            var targetKey = NormalizeIccId(request.TargetIccId);
 
-            // Windows' public APIs do not let a normal desktop app safely
-            // enable/disable an eSIM profile. Raw slot mapping is not equivalent
-            // to the Settings 'Use this SIM' operation and can leave the modem
-            // mapped to an eUICC with no active profile. Let Windows Settings
-            // perform the coordinated switch, then observe the ICCID here.
-            var timeoutAt = DateTimeOffset.UtcNow.AddMinutes(2);
+            var subscription = await smsService.SwitchCurrentSubscriptionAsync(
+                request.UseEsim,
+                string.IsNullOrWhiteSpace(request.TargetIccId)
+                    ? null
+                    : request.TargetIccId);
 
-            while (DateTimeOffset.UtcNow < timeoutAt)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-
-                var subscription =
-                    await smsService.SynchronizeCurrentSubscriptionAsync();
-
-                if (subscription == null ||
-                    string.IsNullOrWhiteSpace(subscription.IccId))
-                {
-                    continue;
-                }
-
-                var activeKey = NormalizeIccId(subscription.IccId);
-                var profile = App.Services
-                    .GetRequiredService<PhoneProfileService>()
-                    .GetProfile(subscription.IccId);
-
-                var activeIsEsim = profile.IsEsim ?? subscription.IsEsim;
-
-                var targetReached =
-                    !string.IsNullOrWhiteSpace(targetKey)
-                        ? activeKey == targetKey
-                        : activeIsEsim == request.UseEsim;
-
-                if (!targetReached)
-                    continue;
-
-                await EnsureCurrentSubscriptionProfileAsync(subscription);
-                return;
-            }
-
-            switchError =
-                "The requested SIM/eSIM did not become active within two minutes. " +
-                "Complete the change in Windows Cellular settings and try again.";
+            await EnsureCurrentSubscriptionProfileAsync(subscription);
         }
         catch (OperationCanceledException)
         {
@@ -657,12 +612,6 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(switchError))
             await ShowSubscriptionSwitchErrorAsync(switchError);
     }
-
-    private static string NormalizeIccId(string? value)
-        => new string((value ?? string.Empty)
-            .Where(char.IsLetterOrDigit)
-            .Select(char.ToUpperInvariant)
-            .ToArray());
 
     private async Task ShowSubscriptionSwitchErrorAsync(string message)
     {
