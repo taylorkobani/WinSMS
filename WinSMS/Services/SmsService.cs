@@ -15,7 +15,6 @@ public class SmsService : ISmsService
     private readonly PhoneProfileService _phoneProfiles;
 
     private SmsMessageRegistration? _messageRegistration;
-    private readonly object _smsRegistrationSync = new();
     private readonly object _subscriptionSync = new();
     private readonly SemaphoreSlim _subscriptionRefreshLock = new(1, 1);
     private CellularSubscription? _currentSubscription;
@@ -492,30 +491,26 @@ public class SmsService : ISmsService
     {
         CellularSubscription? previous;
         var changed = false;
-        var identityChanged = false;
 
         lock (_subscriptionSync)
         {
             previous = _currentSubscription;
 
-            identityChanged =
+            changed =
                 previous == null ||
                 !string.Equals(
                     NormalizeIccId(previous.IccId),
                     NormalizeIccId(subscription.IccId),
-                    StringComparison.OrdinalIgnoreCase);
-
-            changed =
-                identityChanged ||
+                    StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(
-                    previous?.WindowsPhoneNumber,
+                    previous.WindowsPhoneNumber,
                     subscription.WindowsPhoneNumber,
                     StringComparison.Ordinal) ||
                 !string.Equals(
-                    previous?.WindowsProfileName,
+                    previous.WindowsProfileName,
                     subscription.WindowsProfileName,
                     StringComparison.Ordinal) ||
-                previous?.IsEsim != subscription.IsEsim;
+                previous.IsEsim != subscription.IsEsim;
 
             _currentSubscription = subscription;
         }
@@ -529,12 +524,6 @@ public class SmsService : ISmsService
             subscription.SimTypeLabel,
             subscription.WindowsPhoneNumber);
 
-        // The Windows SMS filter registration can be tied to the modem's
-        // current executor/subscription state. Recreate it when the active
-        // ICCID changes so incoming messages continue after a SIM/eSIM switch.
-        if (identityChanged)
-            InitializeWindowsSmsReceiving();
-
         CurrentSubscriptionChanged?.Invoke(this, subscription);
     }
 
@@ -542,62 +531,45 @@ public class SmsService : ISmsService
     {
         const string registrationId = "WinSMS.TextMessages";
 
-        lock (_smsRegistrationSync)
+        try
         {
-            try
+            var existing = SmsMessageRegistration.AllRegistrations
+                .FirstOrDefault(registration => registration.Id == registrationId);
+
+            if (existing != null)
             {
-                if (_messageRegistration != null)
-                {
-                    try
-                    {
-                        _messageRegistration.MessageReceived -=
-                            OnWindowsSmsMessageReceived;
-                    }
-                    catch { }
-
-                    _messageRegistration = null;
-                }
-
-                var existing = SmsMessageRegistration.AllRegistrations
-                    .FirstOrDefault(registration =>
-                        registration.Id == registrationId);
-
-                if (existing != null)
-                {
-                    _logger.LogInformation(
-                        "Removing SMS registration {RegistrationId} before re-registering.",
-                        registrationId);
-
-                    existing.Unregister();
-                }
-
-                var rules = new SmsFilterRules(SmsFilterActionType.Accept);
-                rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
-
-                _messageRegistration =
-                    SmsMessageRegistration.Register(registrationId, rules);
-
-                _messageRegistration.MessageReceived +=
-                    OnWindowsSmsMessageReceived;
-
                 _logger.LogInformation(
-                    "Windows SMS receive registration is active. RegistrationId={RegistrationId}",
-                    _messageRegistration.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(
-                    ex,
-                    "Failed to register for incoming Windows SMS messages. " +
-                    "ExceptionType={ExceptionType}; HResult=0x{HResult:X8}; Message={Message}",
-                    ex.GetType().FullName,
-                    ex.HResult,
-                    ex.Message);
+                    "Removing stale SMS registration {RegistrationId} before re-registering.",
+                    registrationId);
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"WinSMS SMS REGISTRATION FAILED | Type={ex.GetType().FullName} | " +
-                    $"HResult=0x{ex.HResult:X8} | Message={ex.Message}");
+                existing.Unregister();
             }
+
+            var rules = new SmsFilterRules(SmsFilterActionType.Accept);
+            rules.Rules.Add(new SmsFilterRule(SmsMessageType.Text));
+
+            _messageRegistration =
+                SmsMessageRegistration.Register(registrationId, rules);
+
+            _messageRegistration.MessageReceived += OnWindowsSmsMessageReceived;
+
+            _logger.LogInformation(
+                "Windows SMS receive registration is active. RegistrationId={RegistrationId}",
+                _messageRegistration.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to register for incoming Windows SMS messages. " +
+                "ExceptionType={ExceptionType}; HResult=0x{HResult:X8}; Message={Message}",
+                ex.GetType().FullName,
+                ex.HResult,
+                ex.Message);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"WinSMS SMS REGISTRATION FAILED | Type={ex.GetType().FullName} | " +
+                $"HResult=0x{ex.HResult:X8} | Message={ex.Message}");
         }
     }
 
