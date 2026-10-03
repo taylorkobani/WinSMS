@@ -301,22 +301,170 @@ public sealed class MobileBroadbandIdentityService
         }
     }
 
-    public Task<MobileBroadbandSwitchResult> SwitchSlotAsync(
+    public async Task<MobileBroadbandSwitchResult> SwitchSlotAsync(
         bool useEsim,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        // Use only interface + slot-status queries here. The full ready-info
+        // diagnostic is intentionally avoided because some modem drivers reject
+        // readyinfo and it should not delay a user-initiated slot switch.
+        var interfacesResult = await RunNetshAsync(
+            cancellationToken,
+            "mbn",
+            "show",
+            "interfaces");
 
-        // Intentionally disabled. On some DSSA/eSIM systems, executor slot
-        // mapping is not the same operation as selecting the Windows SIM/eSIM
-        // subscription. Mapping directly to the embedded slot can leave the
-        // modem on an eUICC with no active eSIM profile, which breaks SMS.
-        return Task.FromResult(new MobileBroadbandSwitchResult(
+        var interfaceNames = ParseInterfaceNames(interfacesResult.Output).ToList();
+
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.NetworkInterfaceType is
+                NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2)
+            {
+                if (!interfaceNames.Contains(nic.Name, StringComparer.OrdinalIgnoreCase))
+                    interfaceNames.Add(nic.Name);
+            }
+        }
+
+        foreach (var interfaceName in interfaceNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var slotStatus = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "show",
+                "slotstatus",
+                $"interface={interfaceName}");
+
+            var targetSlot = ParseSlotIndexes(slotStatus.Output)
+                .Select(index => new
+                {
+                    Index = index,
+                    State = GetSlotStateText(slotStatus.Output, index)
+                })
+                .FirstOrDefault(slot =>
+                    slot.State.Contains("esim", StringComparison.OrdinalIgnoreCase) == useEsim);
+
+            if (targetSlot == null)
+                continue;
+
+            var normal = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "set",
+                "slotmapping",
+                $"interface={interfaceName}",
+                $"slotindex={targetSlot.Index}");
+
+            if (normal.Success)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    false,
+                    null);
+            }
+
+            // Some Windows/WWAN combinations return exit code 1 even though
+            // the mapping was applied. Check the observable mapping BEFORE
+            // asking for elevation so a successful normal switch does not
+            // produce an unnecessary UAC prompt.
+            var normalMappedSlot = await WaitForMappedSlotAsync(
+                interfaceName,
+                targetSlot.Index,
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
+
+            if (normalMappedSlot == targetSlot.Index)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    false,
+                    null);
+            }
+
+            var elevated = await RunElevatedNetshAsync(
+                cancellationToken,
+                "mbn",
+                "set",
+                "slotmapping",
+                $"interface={interfaceName}",
+                $"slotindex={targetSlot.Index}");
+
+            if (elevated.Success)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    true,
+                    null);
+            }
+
+            // Do not trust netsh's exit code as the final result. Verify the
+            // mapping again because the elevated process can also return 1
+            // after the WWAN service has already accepted the slot change.
+            var mappedAfterAttempt = await WaitForMappedSlotAsync(
+                interfaceName,
+                targetSlot.Index,
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+
+            if (mappedAfterAttempt == targetSlot.Index)
+            {
+                return new MobileBroadbandSwitchResult(
+                    true,
+                    interfaceName,
+                    targetSlot.Index,
+                    elevated.WasElevated,
+                    null);
+            }
+
+            var mappingAfterAttempt = await RunNetshAsync(
+                cancellationToken,
+                "mbn",
+                "show",
+                "slotmapping",
+                $"interface={interfaceName}");
+
+            var normalDetail = FirstUsefulText(normal.Error, normal.Output);
+            var mappingDetail = FirstUsefulText(
+                mappingAfterAttempt.Error,
+                mappingAfterAttempt.Output);
+
+            var error = new StringBuilder();
+            error.Append(
+                $"Windows could not map {interfaceName} to slot {targetSlot.Index}. ");
+
+            if (!string.IsNullOrWhiteSpace(normalDetail))
+                error.Append($"netsh: {normalDetail} ");
+
+            if (!string.IsNullOrWhiteSpace(elevated.Error))
+                error.Append($"Elevated attempt: {elevated.Error} ");
+
+            if (!string.IsNullOrWhiteSpace(mappingDetail))
+                error.Append($"Current mapping: {mappingDetail}");
+
+            return new MobileBroadbandSwitchResult(
+                false,
+                interfaceName,
+                targetSlot.Index,
+                elevated.WasElevated,
+                error.ToString().Trim());
+        }
+
+        return new MobileBroadbandSwitchResult(
             false,
             string.Empty,
             -1,
             false,
-            "Direct slot mapping is disabled. Use Windows Cellular settings to switch SIM/eSIM safely."));
+            useEsim
+                ? "Windows did not report an eSIM slot that WinSMS can activate."
+                : "Windows did not report a physical SIM slot that WinSMS can activate.");
     }
 
     internal static IReadOnlyList<string> ParseInterfaceNames(string output)
